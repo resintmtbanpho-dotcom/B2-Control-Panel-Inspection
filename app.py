@@ -61,7 +61,13 @@ def query_all(sql, params=()):
     with db_conn() as conn:
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
             cur.execute(sql,params)
-            return [dict(row) for row in cur.fetchall()]
+            # PostgreSQL BYTEA values arrive as memoryview; convert before caching.
+            # Streamlit cache_data must be able to serialize every returned value.
+            return [
+                {key: bytes(value) if isinstance(value, memoryview) else value
+                 for key, value in dict(row).items()}
+                for row in cur.fetchall()
+            ]
 
 @st.cache_data(ttl=300, show_spinner=False)
 def fetch_employee_photo(employee_id):
