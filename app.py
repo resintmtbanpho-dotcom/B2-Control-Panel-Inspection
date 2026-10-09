@@ -1,18 +1,21 @@
 import streamlit as st
 from datetime import date
 from PIL import Image, ImageOps, ImageDraw, ImageFont
-from streamlit_image_coordinates import streamlit_image_coordinates
-from pathlib import Path
 from io import BytesIO
 import qrcode
 import base64
 from html import escape
 from datetime import datetime
+from pathlib import Path
 
 st.set_page_config(page_title='B2 Control Panel Inspection', page_icon='⚡', layout='wide') 
 import psycopg2
 from psycopg2.extras import RealDictCursor
 import pandas as pd
+try:
+    from streamlit_image_coordinates import streamlit_image_coordinates
+except ImportError:
+    streamlit_image_coordinates = None
 
 @st.cache_resource
 def database_url():
@@ -37,7 +40,7 @@ def initialize_database():
                 ('white_employee_id','TEXT'),('yellow_employee_id','TEXT'),
                 ('inspector_employee_id','TEXT'),('repairer_employee_id','TEXT'),
                 ('verifier_employee_id','TEXT'),('panel_photo_data','BYTEA'),
-                ('map_x','DOUBLE PRECISION'),('map_y','DOUBLE PRECISION')]:
+                 ('map_x','DOUBLE PRECISION'),('map_y','DOUBLE PRECISION')]:
                 cur.execute(f'ALTER TABLE control_panels ADD COLUMN IF NOT EXISTS {name} {typ}')
             cur.execute('SELECT COUNT(*) FROM control_panels')
             if cur.fetchone()[0] == 0:
@@ -404,6 +407,113 @@ def goto(p, panel_id=None):
 def selected_panel():
     return next((p for p in panels if p['id']==st.session_state.panel_id),None)
 
+# Normalized map coordinates (0..1) are stored in Neon, independent of image size.
+def map_file_for(shop_name):
+    root = Path(__file__).resolve().parent
+    names = (["RSB_Control_Panel_Map.png", "RSB_Control_Panel_Map.jpg"] if shop_name == "RSB"
+             else ["PTB_Control_Panel_Map.png", "PTB_Control_Panel_Map.jpg"])
+    for folder in (root / "assets", root):
+        for filename in names:
+            candidate = folder / filename
+            if candidate.is_file():
+                return candidate
+    return None
+
+
+def inspection_map_status(panel_id, latest_results):
+    item = latest_results.get(panel_id)
+    if not item:
+        return "Not Inspected"
+    return "NG" if item["NG"] else "OK"
+
+
+def render_panel_map(shop_name, shop_panels, latest_results, editable=False):
+    path = map_file_for(shop_name)
+    if not path:
+        st.info(f"ยังไม่มีแผนผัง {shop_name} — อัปโหลดไฟล์ {shop_name}_Control_Panel_Map.png ไปที่ GitHub (โฟลเดอร์หลักหรือ assets)")
+        return
+    if streamlit_image_coordinates is None:
+        st.error("กรุณาเพิ่ม streamlit-image-coordinates ใน requirements.txt แล้วรอแอปติดตั้งแพ็กเกจ")
+        return
+    with Image.open(path) as source:
+        original = ImageOps.exif_transpose(source).convert("RGB")
+    # Display at a consistent width, and store ratios rather than display pixels.
+    width = min(1100, original.width)
+    height = round(original.height * width / original.width)
+    base = original.resize((width, height), Image.Resampling.LANCZOS)
+    draw = ImageDraw.Draw(base)
+    try:
+        font = ImageFont.truetype("DejaVuSans-Bold.ttf", max(12, round(width / 75)))
+    except OSError:
+        font = ImageFont.load_default()
+    pins = []
+    palette = {"OK": "#009b69", "NG": "#e33748", "Not Inspected": "#8b949e"}
+    for panel in shop_panels:
+        x, y = panel.get("map_x"), panel.get("map_y")
+        if x is None or y is None or not (0 <= x <= 1 and 0 <= y <= 1):
+            continue
+        px, py = round(x * width), round(y * height)
+        status = inspection_map_status(panel["id"], latest_results)
+        color = palette[status]
+        radius = max(9, round(width / 105))
+        draw.ellipse((px-radius-2,py-radius-2,px+radius+2,py+radius+2),fill="white")
+        draw.ellipse((px-radius,py-radius,px+radius,py+radius),fill=color,outline="#1c3237",width=1)
+        label = panel["id"].split("-")[-1]
+        bbox = draw.textbbox((0,0),label,font=font)
+        draw.text((px-(bbox[2]-bbox[0])/2,py-(bbox[3]-bbox[1])/2-bbox[1]),label,font=font,fill="white")
+        pins.append((panel,px,py,radius))
+    st.caption("🟢 OK　 🔴 NG　 ⚪ ยังไม่ตรวจในเดือนที่เลือก | แตะหมุดเพื่อดูรายละเอียด")
+    if editable:
+        st.caption("โหมดแก้ไข: เลือก Panel ID แล้วแตะตำแหน่งใหม่บนแผนที่ จากนั้นกดบันทึก")
+        options = [p["id"] for p in shop_panels]
+        target = st.selectbox("เลือกตู้ที่จะเพิ่ม / ย้ายหมุด", options, key=f"map_target_{shop_name}") if options else None
+    else:
+        target = None
+    click = streamlit_image_coordinates(base, key=f"panel_map_{shop_name}_{'edit' if editable else 'view'}")
+    selected = None
+    if click:
+        cx, cy = click["x"], click["y"]
+        near = [( (cx-px)**2+(cy-py)**2, p) for p,px,py,r in pins if (cx-px)**2+(cy-py)**2 <= max(22,r*2)**2]
+        if near:
+            selected = min(near,key=lambda item:item[0])[1]
+        if editable and target:
+            st.session_state[f"pending_map_{shop_name}"] = (target, min(1,max(0,cx/width)),min(1,max(0,cy/height)))
+    if selected:
+        st.markdown(f"**📍 {html(selected['id'])} — {html(selected['name'])}**")
+        st.write(f"Zone: {selected.get('zone') or '—'} | Area: {selected.get('area') or '—'} | สถานะ: {inspection_map_status(selected['id'], latest_results)}")
+        if st.button("เปิด Panel Profile",key=f"map_open_{shop_name}_{'edit' if editable else 'view'}"):
+            goto("Panel Profile",selected["id"])
+    if editable:
+        pending = st.session_state.get(f"pending_map_{shop_name}")
+        if pending:
+            pid, x, y = pending
+            st.info(f"ตำแหน่งใหม่ของ {pid}: X {x:.1%}, Y {y:.1%} (ยังไม่บันทึก)")
+            c1,c2 = st.columns(2)
+            if c1.button("💾 บันทึกตำแหน่งหมุด",type="primary",key=f"save_map_{shop_name}"):
+                try:
+                    with db_conn() as conn:
+                        with conn.cursor() as cur:
+                            cur.execute("UPDATE control_panels SET map_x=%s,map_y=%s,updated_at=NOW() WHERE panel_id=%s AND shop=%s",(x,y,pid,shop_name))
+                    st.session_state.pop(f"pending_map_{shop_name}",None)
+                    refresh_database_cache()
+                    st.rerun()
+                except Exception as exc:
+                    st.error(f"บันทึกหมุดไม่สำเร็จ: {exc}")
+            if c2.button("ยกเลิก",key=f"cancel_map_{shop_name}"):
+                st.session_state.pop(f"pending_map_{shop_name}",None)
+                st.rerun()
+        if target:
+            chosen = next((p for p in shop_panels if p["id"] == target),None)
+            if chosen and chosen.get("map_x") is not None:
+                if st.button("🗑️ ลบหมุดของตู้ที่เลือก",key=f"delete_map_{shop_name}"):
+                    with db_conn() as conn:
+                        with conn.cursor() as cur:
+                            cur.execute("UPDATE control_panels SET map_x=NULL,map_y=NULL,updated_at=NOW() WHERE panel_id=%s AND shop=%s",(target,shop_name))
+                    refresh_database_cache()
+                    st.rerun()
+    st.caption(f"ปักหมุดแล้ว {len(pins)} / {len(shop_panels)} ตู้ • ข้อมูลพิกัดบันทึกใน Neon")
+
+
 def qr_bytes(panel_id):
     # Configure APP_BASE_URL before printing operational QR labels.
     url=st.secrets.get('APP_BASE_URL', 'https://example.invalid').rstrip('/')+'/?panel='+panel_id
@@ -447,6 +557,8 @@ if page=='Dashboard':
             with col:st.markdown(kpi_card(label,value,color,icon),unsafe_allow_html=True)
     completion=(inspected/len(panels)*100) if panels else 0
     st.markdown(f'<div class="sectionbox"><h3>Inspection Completion</h3><div style="display:flex;justify-content:space-between;gap:12px"><span style="color:#646b6c">ตรวจครบตามรอบ / จำนวนตู้ที่ต้องตรวจ</span><b>{f"{completion:.1f}%" if has_records else "—%"}</b></div><div class="progress-bg"><div class="progress-fg" style="width:{completion:.1f}%"></div></div><div style="color:#697273;font-size:13px">คำนวณจากผลตรวจของ {shop} ในเดือนที่เลือก</div></div>',unsafe_allow_html=True)
+    st.subheader('🗺️ Live Panel Status Map — '+shop)
+    render_panel_map(shop, panels, latest, editable=False)
     if has_records:
         by_area={}
         for p in panels:
@@ -479,86 +591,10 @@ if page=='Dashboard':
     st.caption('ตรวจสอบและปรับปรุงทะเบียนตู้ให้ตรงกับพื้นที่จริงก่อนเริ่มใช้งาน')
 elif page=='Factory Map':
     st.header(f'🗺️ Factory Map — {shop}')
-    st.caption('แตะหมุดเพื่อดูข้อมูลตู้ หรือเลือกตู้และแตะตำแหน่งใหม่เพื่อปัก/ย้ายหมุด · บันทึกลง Neon อัตโนมัติเมื่อกดยืนยัน')
-    map_path=Path(__file__).resolve().parent / 'RSB_Control_Panel_Map.png'
-    if not map_path.exists():
-        st.error('ไม่พบไฟล์แผนผัง RSB_Control_Panel_Map.png ใน GitHub')
-    elif shop != 'RSB':
-        st.info('แผนผังที่อัปโหลดเป็นของ RSB เท่านั้น · สามารถเพิ่มแผนผัง PTB แยกต่างหากได้')
-    else:
-        if not panels:
-            st.warning('ยังไม่มีทะเบียนตู้')
-        else:
-            mode=st.radio('โหมดแผนที่', ['🔎 ดูข้อมูลหมุด','📍 เพิ่ม / ย้ายหมุด'], horizontal=True, key='map_mode')
-            target_id=None
-            if mode=='📍 เพิ่ม / ย้ายหมุด':
-                target_id=st.selectbox('เลือก Panel ID ที่ต้องการปัก/ย้าย', [p['id'] for p in panels],
-                                       format_func=lambda pid: pid+' · '+next((p['name'] for p in panels if p['id']==pid),''))
-                st.info('แตะตำแหน่งบนแผนที่ → ตรวจสอบพิกัด → กดบันทึกหมุด (ยังไม่เปลี่ยนข้อมูลจนกดบันทึก)')
-            base=Image.open(map_path).convert('RGB')
-            display_w=min(1100,base.width)
-            display_h=round(base.height*display_w/base.width)
-            canvas=base.resize((display_w,display_h),Image.Resampling.LANCZOS)
-            draw=ImageDraw.Draw(canvas)
-            font=ImageFont.truetype('/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf', max(12,display_w//95)) if Path('/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf').exists() else ImageFont.load_default()
-            marked=[]
-            for item in panels:
-                if item.get('map_x') is None or item.get('map_y') is None: continue
-                x=round(float(item['map_x'])*display_w); y=round(float(item['map_y'])*display_h)
-                records=[r for r in st.session_state.inspections if r['panel']==item['id']]
-                last=records[-1] if records else None
-                color='#e33838' if last and last['NG'] else '#159765' if last else '#73858a'
-                draw.ellipse((x-12,y-12,x+12,y+12),fill=color,outline='white',width=3)
-                draw.text((x+14,y-10),item['id'].replace('CP-RSB-',''),fill='#06363d',font=font,stroke_width=2,stroke_fill='white')
-                marked.append((x,y,item))
-            # A unique key for each selection prevents stale click coordinates being reused.
-            click=streamlit_image_coordinates(canvas,width=display_w,key='map_image_'+mode+'_'+str(target_id))
-            if click:
-                x=int(click['x']); y=int(click['y'])
-                nearest=min(marked,key=lambda m:(m[0]-x)**2+(m[1]-y)**2) if marked else None
-                if mode=='🔎 ดูข้อมูลหมุด':
-                    if nearest and (nearest[0]-x)**2+(nearest[1]-y)**2<=32**2:
-                        st.session_state.map_selected_pin=nearest[2]['id']
-                    else: st.info('แตะตรงวงกลมหมุดเพื่อดูข้อมูลตู้')
-                else:
-                    st.session_state.map_pending=(target_id,max(0,min(1,x/display_w)),max(0,min(1,y/display_h)))
-            if mode=='📍 เพิ่ม / ย้ายหมุด':
-                pending=st.session_state.get('map_pending')
-                if pending and pending[0]==target_id:
-                    st.write(f'ตำแหน่งใหม่ของ **{target_id}**: X {pending[1]*100:.1f}% · Y {pending[2]*100:.1f}%')
-                    a,b=st.columns(2)
-                    if a.button('💾 บันทึกหมุด',type='primary',use_container_width=True):
-                        try:
-                            with db_conn() as conn:
-                                with conn.cursor() as cur:
-                                    cur.execute('UPDATE control_panels SET map_x=%s,map_y=%s,updated_at=NOW() WHERE panel_id=%s AND shop=%s',
-                                                (pending[1],pending[2],target_id,shop))
-                            st.session_state.pop('map_pending',None)
-                            refresh_database_cache()
-                            st.rerun()
-                        except Exception as exc: st.error(f'บันทึกพิกัดไม่สำเร็จ: {exc}')
-                    if b.button('ยกเลิก',use_container_width=True):
-                        st.session_state.pop('map_pending',None);st.rerun()
-                current=next((p for p in panels if p['id']==target_id),None)
-                if current and current.get('map_x') is not None:
-                    if st.button('🗑️ ลบหมุดของตู้นี้ (ไม่ลบทะเบียนตู้)'):
-                        with db_conn() as conn:
-                            with conn.cursor() as cur:
-                                cur.execute('UPDATE control_panels SET map_x=NULL,map_y=NULL,updated_at=NOW() WHERE panel_id=%s AND shop=%s',(target_id,shop))
-                        refresh_database_cache();st.rerun()
-            else:
-                selected=st.session_state.get('map_selected_pin')
-                item=next((p for p in panels if p['id']==selected and p.get('map_x') is not None),None)
-                if item:
-                    with st.container(border=True):
-                        st.subheader(f'📍 {item["id"]} — {item["name"]}')
-                        st.write(f'**Shop:** {item["shop"]} · **Zone:** {item.get("zone") or "—"} · **Area/Process:** {item["area"]} · **Type:** {item["type"]}')
-                        records=[r for r in st.session_state.inspections if r['panel']==item['id']]
-                        last=records[-1] if records else None
-                        st.write('**ผลตรวจล่าสุด:** '+('NG' if last and last['NG'] else 'OK' if last else 'ยังไม่ตรวจ'))
-                        if st.button('🔎 เปิด Panel Profile',type='primary'):
-                            goto('Panel Profile',item['id'])
-            st.caption(f'ปักหมุดแล้ว {len(marked)} / {len(panels)} ตู้ · พิกัดจัดเก็บตามสัดส่วนภาพ จึงไม่เปลี่ยนเมื่อแสดงผลต่างขนาด')
+    st.caption('แผนผังตู้ Control Panel • เพิ่ม ย้าย หรือลบหมุด และบันทึกพิกัดลง Neon')
+    shop_records=[r for r in st.session_state.inspections if r['shop']==shop and r['date'][:7]==date.today().strftime('%Y-%m')]
+    latest_map={r['panel']:r for r in shop_records}
+    render_panel_map(shop, panels, latest_map, editable=True)
 elif page=='Panel List':
     st.header(f'📋 Panel List — {shop}')
     q=st.text_input('ค้นหารหัสตู้หรือชื่อเครื่องจักร')
