@@ -19,6 +19,7 @@ def database_url():
 def db_conn():
     return psycopg2.connect(database_url(), connect_timeout=12)
 
+@st.cache_resource(show_spinner=False)
 def initialize_database():
     # Existing Neon tables are retained; migrations only add missing columns.
     with db_conn() as conn:
@@ -55,11 +56,29 @@ def initialize_database():
                     cur.execute("""INSERT INTO inspection_items(item_no,category,description)
                         VALUES (%s,%s,%s) ON CONFLICT (item_no) DO NOTHING""",(idx,cat,CHECKLIST_ITEMS[idx-1]))
 
+@st.cache_data(ttl=180, show_spinner=False)
 def query_all(sql, params=()):
     with db_conn() as conn:
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
             cur.execute(sql,params)
             return [dict(row) for row in cur.fetchall()]
+
+@st.cache_data(ttl=300, show_spinner=False)
+def fetch_employee_photo(employee_id):
+    if not employee_id:
+        return None
+    rows = query_all('SELECT photo_data FROM employees WHERE employee_id=%s', (employee_id,))
+    return bytes(rows[0]['photo_data']) if rows and rows[0].get('photo_data') else None
+
+@st.cache_data(ttl=300, show_spinner=False)
+def fetch_panel_photo(panel_id):
+    rows = query_all('SELECT panel_photo_data FROM control_panels WHERE panel_id=%s', (panel_id,))
+    return bytes(rows[0]['panel_photo_data']) if rows and rows[0].get('panel_photo_data') else None
+
+def refresh_database_cache():
+    query_all.clear()
+    fetch_employee_photo.clear()
+    fetch_panel_photo.clear()
 
 def save_employee(employee_id, name, shop, shift, position, phone, roles, photo):
     with db_conn() as conn:
@@ -79,7 +98,7 @@ def employee_label(employee_id, employees):
 
 def employee_photo(employee_id, employees):
     employee=next((e for e in employees if e['employee_id']==employee_id),None)
-    return bytes(employee['photo_data']) if employee and employee.get('photo_data') else None
+    return fetch_employee_photo(employee_id) if employee else None
 
 def employee_picker(label, employees, current_id='', key=None, shop=None, shift=None):
     available=[e for e in employees if e['is_active'] and (not shop or e['shop']==shop)
@@ -199,8 +218,10 @@ CHECKLIST_ITEMS = ['มีจุด Lockout และป้ายระบุท
 
 try:
     initialize_database()
-    employees=query_all('SELECT * FROM employees ORDER BY shop,full_name')
-    panel_rows=query_all('SELECT * FROM control_panels WHERE is_active = TRUE ORDER BY panel_id')
+    employees=query_all('SELECT employee_id,full_name,shop,shift,position,phone,roles,is_active FROM employees ORDER BY shop,full_name')
+    panel_rows=query_all('''SELECT panel_id,panel_name,shop,location,area,panel_type,inspection_cycle,
+        white_employee_id,yellow_employee_id,inspector_employee_id,repairer_employee_id,
+        verifier_employee_id FROM control_panels WHERE is_active = TRUE ORDER BY panel_id''')
     st.session_state.panels=[dict(
         id=r['panel_id'],shop=r['shop'],area=r.get('area') or r.get('location') or '',
         name=r['panel_name'],type=r.get('panel_type') or 'Electrical Panel',
@@ -208,7 +229,7 @@ try:
         white=r.get('white_employee_id') or '',yellow=r.get('yellow_employee_id') or '',
         inspector=r.get('inspector_employee_id') or '',repairer=r.get('repairer_employee_id') or '',
         verifier=r.get('verifier_employee_id') or '',
-        photo=bytes(r['panel_photo_data']) if r.get('panel_photo_data') else None)
+        photo=None)
         for r in panel_rows]
     result_rows=query_all("""SELECT i.id,i.panel_id,i.inspector_name,i.inspection_date,i.remarks,
         p.shop,COUNT(*) FILTER (WHERE r.result='OK') AS ok,
@@ -264,7 +285,10 @@ def qr_bytes(panel_id):
     img=qrcode.make(url)
     b=BytesIO();img.save(b,format='PNG');return b.getvalue()
 
-st.caption(f'{shop} SHOP · Neon Database')
+if st.sidebar.button('🔄 โหลดข้อมูลล่าสุด', use_container_width=True):
+    refresh_database_cache()
+    st.rerun()
+st.caption(f'{shop} SHOP · Neon Database · Smart Cache')
 if page=='Dashboard':
     accent='#204b50' if shop=='RSB' else '#a34c22'
     st.markdown(f'<div class="hero" style="background:{accent}"><span class="pill">{shop} ONLINE</span><div class="brand">B2 CONTROL PANEL INSPECTION</div><div class="subtitle">Dashboard — {shop} Shop</div></div>',unsafe_allow_html=True)
@@ -345,6 +369,7 @@ elif page=='Panel List':
                             with conn.cursor() as cur:
                                 cur.execute("""INSERT INTO control_panels(panel_id,panel_name,shop,location,area,panel_type,inspection_cycle)
                                     VALUES (%s,%s,%s,%s,%s,'Electrical Panel','Monthly')""",(new_id,new_name,shop,new_area,new_area))
+                        refresh_database_cache()
                         st.rerun()
                     except Exception as exc: st.error(f'บันทึกไม่สำเร็จ: {exc}')
 elif page in ['Panel Profile','Inspection']:
@@ -356,8 +381,9 @@ elif page in ['Panel Profile','Inspection']:
     st.session_state.panel_id=panel_id;p=selected_panel()
     if page=='Panel Profile':
         st.markdown(f'<div style="font-size:14px;font-weight:700;color:#17634e;margin-bottom:7px">B2 CONTROL PANEL &nbsp; • &nbsp; {shop} · Active</div><div style="color:#727b7c;margin-bottom:12px">Digital Safety Passport</div>',unsafe_allow_html=True)
-        if p['photo']:
-            st.image(p['photo'],use_container_width=True)
+        panel_photo = fetch_panel_photo(panel_id)
+        if panel_photo:
+            st.image(panel_photo,use_container_width=True)
         else:
             st.markdown('<div class="photo-placeholder">📷<br>ยังไม่มีรูปตู้จริง<br>กด Edit Panel Profile เพื่ออัปโหลด</div>',unsafe_allow_html=True)
         st.markdown(f'<div class="profile-title">{html(panel_id)}</div><div class="profile-sub">{html(p["name"])} · {html(p["type"])}</div>',unsafe_allow_html=True)
@@ -428,6 +454,7 @@ elif page in ['Panel Profile','Inspection']:
                                          vals['white'] or None,vals['yellow'] or None,vals['inspector'] or None,
                                          vals['repairer'] or None,vals['verifier'] or None,
                                          psycopg2.Binary(photo) if photo else None,panel_id))
+                            refresh_database_cache()
                             st.success('บันทึกโปรไฟล์ลง Neon Database แล้ว')
                             st.rerun()
                     except Exception as exc: st.error(f'บันทึกข้อมูลไม่สำเร็จ: {exc}')
@@ -465,6 +492,7 @@ elif page in ['Panel Profile','Inspection']:
                                     cur.execute("""INSERT INTO inspection_results(inspection_id,item_id,result,ng_detail)
                                         SELECT %s,id,%s,%s FROM inspection_items WHERE item_no=%s""",
                                         (inspection_id,result,notes if result=='NG' else None,item_no))
+                        refresh_database_cache()
                         st.success('บันทึกผลตรวจทั้ง 35 ข้อลง Neon แล้ว')
                         st.rerun()
                     except Exception as exc: st.error(f'บันทึกผลตรวจไม่สำเร็จ: {exc}')
@@ -504,6 +532,7 @@ elif page=='Employee Master':
                     try:
                         raw=compress_image(photo,max_dim=400,target_kb=60) if photo else None
                         save_employee(eid.strip(),name.strip(),sh,shift,position,phone,roles,raw)
+                        refresh_database_cache()
                         st.success('บันทึก Employee Master ลง Neon แล้ว')
                         st.rerun()
                     except Exception as exc: st.error(f'บันทึกไม่สำเร็จ: {exc}')
@@ -529,5 +558,6 @@ elif page=='Employee Master':
                                     shift=EXCLUDED.shift,position=EXCLUDED.position,phone=EXCLUDED.phone,roles=EXCLUDED.roles,updated_at=NOW()""",
                                     (eid,name,shop_name,str(r.get('shift','')),str(r.get('position','')),str(r.get('phone','')),str(r.get('roles',''))))
                                 count+=1
+                    refresh_database_cache()
                     st.success(f'นำเข้าสำเร็จ {count} รายชื่อ');st.rerun()
             except Exception as exc:st.error(f'อ่านหรือนำเข้าไฟล์ไม่สำเร็จ: {exc}')
