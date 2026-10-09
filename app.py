@@ -7,7 +7,27 @@ import base64
 from html import escape
 from datetime import datetime
 
-st.set_page_config(page_title='B2 Control Panel Inspection', page_icon='⚡', layout='wide')
+st.set_page_config(page_title='B2 Control Panel Inspection', page_icon='⚡', layout='wide') 
+import psycopg2
+
+try:
+    conn = psycopg2.connect(
+        st.secrets["DATABASE_URL"],
+        connect_timeout=10
+    )
+    with conn.cursor() as cur:
+        cur.execute("SELECT current_database(), COUNT(*) FROM information_schema.tables WHERE table_schema = 'public' AND table_name IN ('control_panels', 'inspection_items', 'inspections', 'inspection_results')")
+        db_name, table_count = cur.fetchone()
+    conn.close()
+
+    if table_count == 4:
+        st.success(f"✅ Neon Connected! Database: {db_name} | Tables: {table_count}/4")
+    else:
+        st.warning(f"เชื่อมต่อได้ แต่พบตาราง {table_count}/4")
+
+except Exception:
+    st.error("❌ ไม่สามารถเชื่อมต่อ Neon Database ได้ กรุณาตรวจสอบ DATABASE_URL ใน Streamlit Secrets")
+
 st.markdown("""<style>
 .stApp {background:#fbfcfc;color:#202628}
 .block-container {max-width:1120px;padding-top:1.3rem;padding-bottom:3rem}
