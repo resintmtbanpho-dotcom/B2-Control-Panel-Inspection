@@ -115,62 +115,49 @@ def employee_picker(label, employees, current_id='', key=None, shop=None, shift=
                         format_func=lambda eid: (f"{eid} · {employee_label(eid,employees)}" if eid else '— เลือกพนักงาน —'),key=key)
 
 st.markdown("""<style>
-/* B2 Safety Pulse — Modern Industrial UI. Presentation only. */
-:root {--b2-ink:#183036;--b2-green:#0f554d;--b2-mint:#e9f5ef;--b2-line:#dce7e5;--b2-muted:#607478}
-.stApp {background:linear-gradient(180deg,#f0f7f5 0,#f8fafb 340px,#f8fafb 100%);color:var(--b2-ink)}
-.block-container {max-width:1180px;padding-top:1.5rem;padding-bottom:4rem}
-h1,h2,h3 {color:var(--b2-ink)!important;letter-spacing:-.025em}
-h1 {font-size:clamp(1.65rem,3vw,2.3rem)!important} h2 {font-size:clamp(1.4rem,2.5vw,1.85rem)!important}
-section[data-testid="stSidebar"] {background:linear-gradient(170deg,#102f34,#174d4b)!important;border-right:1px solid #315b58}
-section[data-testid="stSidebar"] * {color:#eef9f5}
-section[data-testid="stSidebar"] [data-testid="stCaptionContainer"] {opacity:.82}
-section[data-testid="stSidebar"] [data-testid="stRadio"] label {padding:5px 3px;border-radius:9px}
-section[data-testid="stSidebar"] [data-testid="stRadio"] label:hover {background:#ffffff14}
-section[data-testid="stSidebar"] button {background:#ffffff12!important;color:#fff!important;border:1px solid #ffffff50!important}
-section[data-testid="stSidebar"] button:hover {background:#ffffff25!important}
-[data-testid="stVerticalBlockBorderWrapper"] {border-radius:18px!important;border-color:var(--b2-line)!important;background:#fff}
-.stButton>button,.stDownloadButton>button,div[data-testid="stFormSubmitButton"] button {border-radius:12px!important;min-height:46px;font-weight:650;transition:background .15s ease,border-color .15s ease,transform .15s ease}
-.stButton>button:hover,.stDownloadButton>button:hover {border-color:#0c7664;transform:translateY(-1px)}
-.stButton>button[kind="primary"],.stDownloadButton>button[kind="primary"],div[data-testid="stFormSubmitButton"] button[kind="primary"] {background:#105c51!important;border-color:#105c51!important;color:white!important}
-.stButton>button[kind="primary"]:hover {background:#0b473f!important}
-[data-testid="stTextInput"] input,[data-testid="stTextArea"] textarea,[data-testid="stSelectbox"] [data-baseweb="select"]>div {border-radius:12px!important;border-color:#d7e4e1!important;background:#fff}
-[data-testid="stForm"] {background:#fff;border:1px solid var(--b2-line);border-radius:18px;padding:16px}
-[data-testid="stExpander"] {border:1px solid var(--b2-line);border-radius:14px!important;background:#fff;overflow:hidden}
-[data-testid="stDataFrame"] {border-radius:12px;overflow:hidden}
-.hero {background:linear-gradient(115deg,#123a3d,#17695b)!important;color:white;border-radius:22px;padding:29px 30px;margin:8px 0 23px;box-shadow:0 12px 26px #0e594c25;position:relative;overflow:hidden}
-.hero:after {content:"";position:absolute;width:230px;height:230px;border:1px solid #ffffff25;border-radius:50%;right:-85px;top:-115px;pointer-events:none}
-.hero .brand {font-size:clamp(17px,3.6vw,25px);font-weight:800;letter-spacing:.035em;color:#fff}
-.hero .subtitle {font-size:clamp(15px,3vw,21px);opacity:.9;margin-top:7px;color:#fff}
-.hero .pill {float:right;background:#dcfce9;color:#126448;border-radius:30px;padding:7px 13px;font-size:12px;font-weight:800}
-.kpi {background:#fff;border:1px solid #dfe9e6;border-radius:17px;padding:19px;min-height:131px;margin-bottom:12px;box-shadow:0 4px 16px #173d3410}
-.kpi .label {font-size:13px;color:#66797c;line-height:1.5;font-weight:600}
-.kpi .num {font-size:clamp(29px,4vw,40px);line-height:1.25;font-weight:800;color:#142b30;margin-top:11px;letter-spacing:-.03em}
-.sectionbox {background:#fff;border:1px solid var(--b2-line);border-radius:19px;padding:23px;margin:12px 0 20px;box-shadow:0 4px 16px #173d340b}
-.sectionbox h3 {margin:0 0 14px;font-size:19px}
-.progress-bg {height:11px;background:#e5efeb;border-radius:20px;overflow:hidden;margin:13px 0}
-.progress-fg {height:100%;background:linear-gradient(90deg,#168d74,#42ba91);border-radius:20px}
-.statusbox {border:1px solid #e1e9e7;border-radius:16px;padding:16px;min-height:105px;background:#fff;box-shadow:0 3px 13px #173d3409}
-.statuspill {display:inline-block;padding:5px 12px;border-radius:30px;font-weight:700;font-size:13px}
-.profile-title {font-size:clamp(26px,4vw,34px);font-weight:850;color:#143c3c;margin:15px 0 2px;letter-spacing:-.03em}
-.profile-sub {font-size:16px;color:#617477;margin-bottom:18px}
-.photo-placeholder {background:linear-gradient(135deg,#eaf3f0,#f4f8f7);min-height:195px;border:1px dashed #b9d2cb;border-radius:17px;display:flex;align-items:center;justify-content:center;color:#69827e;text-align:center;padding:20px}
-.profile-table {background:#fff;border:1px solid var(--b2-line);padding:20px;border-radius:18px;margin:15px 0;box-shadow:0 3px 15px #173d340b}
-.info-row {display:flex;justify-content:space-between;gap:12px;margin:12px 0;font-size:14px;border-bottom:1px solid #edf2f0;padding-bottom:9px}
-.info-row:last-child {border:0;padding-bottom:0}
-.info-row span:first-child {color:#6c7f80}.info-row span:last-child {font-weight:700;color:#1c383c;text-align:right;overflow-wrap:anywhere}
-.person {background:#fff;border:1px solid var(--b2-line);border-radius:19px;text-align:center;padding:19px 9px;min-height:218px;box-shadow:0 3px 15px #173d340c}
-.person .avatar {height:76px;width:76px;border-radius:50%;background:#e4f2ed;display:flex;align-items:center;justify-content:center;font-size:31px;margin:12px auto;border:3px solid #f1f8f5}
-.person .name {font-weight:800;margin:10px 0 5px;color:#18363b}.person .meta {font-size:12px;color:#6a7d7d;overflow-wrap:anywhere}
-.role {background:#fff;border:1px solid var(--b2-line);padding:15px 19px;border-radius:15px;margin:9px 0;box-shadow:0 2px 12px #173d3408}
-.role small {color:#687e7e}
-@media(max-width:650px){
-.block-container {padding-left:13px;padding-right:13px;padding-top:.9rem}
-.hero {padding:21px 17px;border-radius:17px;margin-bottom:16px}.hero .pill {font-size:10px;padding:5px 9px}
-.kpi {min-height:113px;padding:14px 12px;border-radius:14px}.kpi .num {font-size:30px}.kpi .label {font-size:11px}
-.sectionbox {padding:17px;border-radius:15px}.profile-title {font-size:27px}.person {min-height:190px;padding:13px 5px}
-.profile-table {padding:14px}.info-row {font-size:13px}
-.stButton>button,.stDownloadButton>button {min-height:48px}
-}
+:root{--b2-teal:#064a4e;--b2-dark:#05373d;--b2-green:#00977c;--b2-border:#dce8e9;--b2-ink:#19333a}
+.stApp{background:#f5f8f9;color:var(--b2-ink)}
+.block-container{max-width:1160px;padding-top:1rem;padding-bottom:6.6rem}
+h1,h2,h3{color:#143940!important;letter-spacing:-.025em}
+section[data-testid="stSidebar"]{background:linear-gradient(170deg,#05343b,#08615f)!important}
+section[data-testid="stSidebar"] *{color:#f1fbfb!important}
+section[data-testid="stSidebar"] [data-testid="stRadio"] label{border-radius:10px;padding:5px}
+section[data-testid="stSidebar"] [data-testid="stRadio"] label:hover{background:#ffffff1b}
+section[data-testid="stSidebar"] button{background:#ffffff15!important;color:white!important;border:1px solid #ffffff55!important}
+.stButton>button,.stDownloadButton>button,div[data-testid="stFormSubmitButton"] button{border-radius:12px!important;min-height:46px;font-weight:650;border-color:#d1e2e3}
+.stButton>button[kind="primary"],div[data-testid="stFormSubmitButton"] button[kind="primary"]{background:#007e71!important;color:white!important;border-color:#007e71!important}
+[data-testid="stVerticalBlockBorderWrapper"], [data-testid="stForm"], [data-testid="stExpander"]{border-radius:16px!important}
+[data-testid="stTextInput"] input,[data-testid="stTextArea"] textarea,[data-testid="stSelectbox"] [data-baseweb="select"]>div{border-radius:11px!important}
+.hero{background:linear-gradient(115deg,#05363d,#006361)!important;color:white;border-radius:19px;padding:26px 25px;margin:5px 0 20px;box-shadow:0 9px 25px #064b4b20;position:relative;overflow:hidden}
+.hero:after{content:"";position:absolute;width:210px;height:210px;border:1px solid #ffffff20;border-radius:50%;right:-70px;top:-115px}
+.hero .brand{font-size:clamp(19px,3vw,29px);font-weight:850;color:#fff;line-height:1.3}
+.hero .subtitle{font-size:14px;color:#d4eeee;margin-top:8px}
+.hero .pill{float:right;background:#d6fff0;color:#04604d;border-radius:30px;padding:5px 11px;font-size:11px;font-weight:800}
+.kpi{background:#fff;border:1px solid #dfebed;border-radius:15px;padding:16px;min-height:126px;margin-bottom:8px;box-shadow:0 4px 15px #143e4410;position:relative;overflow:hidden}
+.kpi:before{content:"";position:absolute;top:0;left:0;bottom:0;width:5px;background:var(--kpi-accent,#0b719d)}
+.kpi .label{font-size:13px;color:#647b82;font-weight:650;line-height:1.5}
+.kpi .num{font-size:clamp(27px,4vw,38px);font-weight:850;margin-top:11px;line-height:1.15;letter-spacing:-.03em}
+.sectionbox,.profile-table{background:white;border:1px solid #dce8e9;border-radius:17px;padding:21px;margin:12px 0 19px;box-shadow:0 4px 15px #123a3c0a}
+.sectionbox h3{margin:0 0 14px;font-size:18px}
+.progress-bg{height:11px;background:#e6eeee;border-radius:20px;overflow:hidden;margin:14px 0}
+.progress-fg{height:100%;background:linear-gradient(90deg,#00967c,#3cc39b);border-radius:20px}
+.statusbox{background:#fff;border:1px solid #e1e9ea;border-radius:14px;padding:15px;min-height:104px}
+.statuspill{display:inline-block;padding:5px 11px;border-radius:20px;font-size:12px;font-weight:750}
+.profile-title{font-size:clamp(26px,4vw,34px);font-weight:850;color:#064e50;margin:15px 0 3px}
+.profile-sub{font-size:15px;color:#688084;margin-bottom:16px}
+.photo-placeholder{background:#edf5f5;min-height:185px;border:1px dashed #b7d0d0;border-radius:15px;display:flex;align-items:center;justify-content:center;color:#658286;text-align:center;padding:20px}
+.info-row{display:flex;justify-content:space-between;gap:10px;margin:11px 0;border-bottom:1px solid #eef2f3;padding-bottom:9px;font-size:14px}
+.info-row span:first-child{color:#647e82}.info-row span:last-child{font-weight:700;color:#193c42;text-align:right;overflow-wrap:anywhere}
+.person{background:#fff;border:1px solid #dce8e9;border-radius:17px;text-align:center;padding:18px 8px;min-height:206px;box-shadow:0 4px 14px #123a3c0c}
+.person .avatar{height:78px;width:78px;border-radius:50%;background:#e3f4ef;display:flex;align-items:center;justify-content:center;font-size:30px;margin:12px auto}
+.person .name{font-weight:800;margin:9px 0 5px;color:#183b40}.person .meta{font-size:12px;color:#668084;overflow-wrap:anywhere}
+.role{background:#fff;border:1px solid #dce8e9;padding:15px 18px;border-radius:14px;margin:9px 0}.role small{color:#647b7f}
+/* Bottom navigation: Streamlit buttons remain real controls, not decorative links. */
+.st-key-b2_bottom_nav{position:fixed;bottom:0;left:50%;transform:translateX(-50%);width:min(100%,1160px);z-index:999;background:linear-gradient(110deg,#053840,#00605d);border-radius:16px 16px 0 0;padding:8px 12px max(9px,env(safe-area-inset-bottom));box-shadow:0 -5px 24px #0a353536}
+.st-key-b2_bottom_nav [data-testid="stHorizontalBlock"]{gap:.3rem}
+.st-key-b2_bottom_nav .stButton>button{background:transparent!important;border:0!important;color:#fff!important;min-height:48px;padding:5px 2px;font-size:clamp(10px,1.8vw,13px);white-space:normal}
+.st-key-b2_bottom_nav .stButton>button:hover{background:#ffffff20!important}
+@media(max-width:650px){.block-container{padding-left:12px;padding-right:12px;padding-top:.7rem;padding-bottom:7rem}.hero{padding:22px 16px;border-radius:15px}.hero .pill{font-size:10px}.kpi{min-height:112px;padding:14px 10px}.kpi .label{font-size:11px}.kpi .num{font-size:29px}.sectionbox,.profile-table{padding:15px}.person{min-height:185px;padding:12px 5px}.info-row{font-size:12px}.st-key-b2_bottom_nav{border-radius:14px 14px 0 0;padding-left:5px;padding-right:5px}.st-key-b2_bottom_nav .stButton>button{font-size:10px;line-height:1.2}}
 </style>""",unsafe_allow_html=True)
 
 def html(value):
@@ -207,7 +194,7 @@ def person_card(title,name,photo,shift):
     return f'<div class="person"><span class="statuspill" style="background:{bg}">{title}</span>{avatar}<div class="name">{label}</div><div class="meta">Employee ID: —<br>Phone: —</div></div>'
 
 def kpi_card(label,value,color='#111',icon='▦'):
-    return f'<div class="kpi"><div class="label">{icon} &nbsp; {label}</div><div class="num" style="color:{color}">{value}</div></div>'
+    return f'<div class="kpi" style="--kpi-accent:{color}"><div class="label">{icon} &nbsp; {label}</div><div class="num" style="color:{color}">{value}</div></div>'
 
 CHECKLIST_ITEMS = ['มีจุด Lockout และป้ายระบุที่ Main Breaker ชัดเจน',
  'มีป้ายชื่อ Control Panel แสดงชัดเจน',
@@ -345,7 +332,7 @@ if page != 'Dashboard':
 st.session_state.last_rendered_panel_id = st.session_state.panel_id
 if page=='Dashboard':
     accent='#204b50' if shop=='RSB' else '#a34c22'
-    st.markdown(f'<div class="hero" style="background:{accent}"><span class="pill">{shop} ONLINE</span><div class="brand">B2 CONTROL PANEL INSPECTION</div><div class="subtitle">Dashboard — {shop} Shop</div></div>',unsafe_allow_html=True)
+    st.markdown(f'<div class="hero" style="background:{accent}"><span class="pill">{shop} ONLINE</span><div style="font-size:12px;color:#8be0d5;margin-bottom:7px">TOYOTA BANPHO · {shop} SHOP</div><div class="brand">B2 Control Panel Inspection</div><div class="subtitle">Electrical &amp; Machine Control Panel · Dashboard</div></div>',unsafe_allow_html=True)
     mcol,scol=st.columns(2)
     with mcol: month=st.selectbox('Month',list(range(1,13)),index=date.today().month-1,format_func=lambda m:['มกราคม','กุมภาพันธ์','มีนาคม','เมษายน','พฤษภาคม','มิถุนายน','กรกฎาคม','สิงหาคม','กันยายน','ตุลาคม','พฤศจิกายน','ธันวาคม'][m-1])
     with scol: status=st.selectbox('Status',['ทุกสถานะ','OK','NG','Pending','Overdue'])
@@ -357,7 +344,7 @@ if page=='Dashboard':
     ng=sum(r['NG']>0 for r in latest.values())
     pending=max(0,len(panels)-inspected)
     has_records=bool(records)
-    values=[('Registered Panels',len(panels),'#111','▦'),('Inspected',inspected if has_records else '—','#111','☑'),('OK Panels',ok if has_records else '—','#247344','✓'),('NG Panels',ng if has_records else '—','#9c3027','⚠'),('Pending',pending if has_records else '—','#555','◷'),('Overdue','—','#9a4b1f','▣')]
+    values=[('Panels ทั้งหมด',len(panels),'#1975cb','▦'),('ตรวจสอบแล้ว',inspected if has_records else '—','#00977c','☑'),('ผล OK',ok if has_records else '—','#00977c','✓'),('ผล NG',ng if has_records else '—','#ed3047','⚠'),('รอตรวจสอบ',pending if has_records else '—','#d9a100','◷'),('เกินกำหนด','—','#ed3047','▣')]
     for i in range(0,6,2):
         cols=st.columns(2,gap='small')
         for col,(label,value,color,icon) in zip(cols,values[i:i+2]):
@@ -617,3 +604,18 @@ elif page=='Employee Master':
                     refresh_database_cache()
                     st.success(f'นำเข้าสำเร็จ {count} รายชื่อ');st.rerun()
             except Exception as exc:st.error(f'อ่านหรือนำเข้าไฟล์ไม่สำเร็จ: {exc}')
+
+
+# Mobile-first quick navigation. Keep native Streamlit buttons for working actions.
+with st.container(key='b2_bottom_nav'):
+    nav_cols = st.columns(5, gap='small')
+    nav_actions = [
+        ('🏠\nหน้าแรก', 'Dashboard'),
+        ('🗺️\nแผนที่', 'Factory Map'),
+        ('▦\nรายการตู้', 'Panel List'),
+        ('⚠️\nNG', 'NG Tracking'),
+        ('👤\nพนักงาน', 'Employee Master'),
+    ]
+    for nav_col, (nav_label, nav_target) in zip(nav_cols, nav_actions):
+        if nav_col.button(nav_label, key='bottom_'+nav_target.replace(' ','_'), use_container_width=True):
+            goto(nav_target)
