@@ -136,7 +136,7 @@ CHECKLIST_ITEMS = ['มีจุด Lockout และป้ายระบุท
  'ตู้ Control Panel ทุกตู้มีสายดินหลัก (Main Ground)',
  'ไม่มีวัสดุติดไฟหรือสิ่งของไม่จำเป็นภายในตู้ เช่น กระดาษ หรือวัสดุพันสายที่ไม่เหมาะสม']
 
-# data only. Replace with Supabase queries before production deployment.
+# Panel and inspection records currently use session state; persistent Neon writes are not yet implemented.
 if 'panels' not in st.session_state:
     st.session_state.panels = [dict(id=f'CP-RSB-{i:03d}',shop='RSB',area=['L1','L2','L3','L4','L5','L6','L7','L8','L9','L10','L11'][(i-1)%11],name='Injection 2500T' if i==1 else f'Control Panel {i:03d}',type='Electrical Panel',cycle='Monthly',white='',yellow='',inspector='',repairer='',photo=None) for i in range(1,68)]
 if 'inspections' not in st.session_state: st.session_state.inspections=[]
@@ -176,12 +176,12 @@ def selected_panel():
     return next((p for p in panels if p['id']==st.session_state.panel_id),None)
 
 def qr_bytes(panel_id):
-    # This is a demo URL. Configure APP_BASE_URL before printing operational labels.
+    # Configure APP_BASE_URL before printing operational QR labels.
     url=st.secrets.get('APP_BASE_URL', 'https://example.invalid').rstrip('/')+'/?panel='+panel_id
     img=qrcode.make(url)
     b=BytesIO();img.save(b,format='PNG');return b.getvalue()
 
-st.caption(f'{shop} SHOP  ·— ข้อมูลยังอยู่ใน Session และไม่ได้เชื่อม Supabase')
+st.caption(f'{shop} SHOP · ฐานข้อมูล Neon เชื่อมต่อแล้ว · ข้อมูลทะเบียนตู้และผลตรวจยังไม่ได้บันทึกถาวร')
 if page=='Dashboard':
     accent='#204b50' if shop=='RSB' else '#a34c22'
     st.markdown(f'<div class="hero" style="background:{accent}"><span class="pill">{shop} ONLINE</span><div class="brand">B2 CONTROL PANEL INSPECTION</div><div class="subtitle">Dashboard — {shop} Shop</div></div>',unsafe_allow_html=True)
@@ -202,7 +202,7 @@ if page=='Dashboard':
         for col,(label,value,color,icon) in zip(cols,values[i:i+2]):
             with col:st.markdown(kpi_card(label,value,color,icon),unsafe_allow_html=True)
     completion=(inspected/len(panels)*100) if panels else 0
-    st.markdown(f'<div class="sectionbox"><h3>Inspection Completion</h3><div style="display:flex;justify-content:space-between;gap:12px"><span style="color:#646b6c">ตรวจครบตามรอบ / จำนวนตู้ที่ต้องตรวจ</span><b>{f"{completion:.1f}%" if has_records else "—%"}</b></div><div class="progress-bg"><div class="progress-fg" style="width:{completion:.1f}%"></div></div><div style="color:#697273;font-size:13px">คำนวณจากผลตรวจใน Session ของ {shop} เดือนที่เลือก · ตัวเลขทดลอง</div></div>',unsafe_allow_html=True)
+    st.markdown(f'<div class="sectionbox"><h3>Inspection Completion</h3><div style="display:flex;justify-content:space-between;gap:12px"><span style="color:#646b6c">ตรวจครบตามรอบ / จำนวนตู้ที่ต้องตรวจ</span><b>{f"{completion:.1f}%" if has_records else "—%"}</b></div><div class="progress-bg"><div class="progress-fg" style="width:{completion:.1f}%"></div></div><div style="color:#697273;font-size:13px">คำนวณจากผลตรวจของ {shop} ในเดือนที่เลือก</div></div>',unsafe_allow_html=True)
     if has_records:
         by_area={}
         for p in panels:
@@ -228,14 +228,14 @@ if page=='Dashboard':
                 count=len(ng_records) if label=='New' else 0
                 val=str(count) if ng_records else '—'
                 st.markdown(f'<div class="statusbox"><span class="statuspill" style="background:{bg};color:{fg}">{label}</span><div style="font-size:27px;font-weight:750;margin-top:12px">{val}</div></div>',unsafe_allow_html=True)
-    st.caption('NG Tracking ในเวอร์ชันทดลองยังไม่มี workflow ปิดงาน/ตรวจยืนยัน; New นับจากผล NG ที่บันทึกในเดือนนี้')
+    st.caption('NG Tracking: New นับจากผล NG ที่บันทึกในเดือนนี้ · ยังไม่มีขั้นตอนปิดงานและตรวจยืนยัน')
     c1,c2=st.columns(2)
     if c1.button('☷  Panel List',use_container_width=True):goto('Panel List')
     if c2.button(f'▧  {shop} Map',use_container_width=True):goto('Factory Map')
-    st.caption('จำนวนทะเบียนตู้ RSB 67 รายการเป็นข้อมูลเริ่มต้นตัวอย่าง; PTB แยกต่างหาก และยังไม่ขึ้นทะเบียน')
+    st.caption('ทะเบียนตู้ RSB เริ่มต้น 67 รายการ (โปรดตรวจสอบข้อมูลจริง) · PTB ยังไม่ขึ้นทะเบียน')
 elif page=='Factory Map':
     st.header(f'🗺️ Factory Map — {shop}')
-    st.warning('แผนผังนี้เป็น Zone List จำลอง ยังไม่ได้อัปโหลดแผนผังโรงงานจริงหรือพิกัดตู้')
+    st.warning('แสดงรายการตู้แยกตาม Zone · ยังไม่ได้เพิ่มภาพแผนผังโรงงานและพิกัดตู้')
     zones=sorted(set(p['area'] for p in panels),key=lambda s:int(s[1:]))
     for z in zones:
         with st.expander(f'{z} — {sum(p["area"]==z for p in panels)} ตู้'):
@@ -261,7 +261,7 @@ elif page=='Panel List':
 elif page in ['Panel Profile','Inspection']:
     if not ids:st.warning('ยังไม่มีทะเบียนตู้ใน Shop นี้');st.stop()
     if st.session_state.panel_id not in ids:
-        st.warning('ไม่พบตู้ตาม QR นี้ในทะเบียน Shop ที่เลือก (ทะเบียนในเวอร์ชันทดลองอาจยังไม่มีข้อมูล)')
+        st.warning('ไม่พบรหัสตู้นี้ในทะเบียนของ Shop ที่เลือก')
         st.stop()
     panel_id=st.selectbox('Panel ID',ids,index=ids.index(st.session_state.panel_id))
     st.session_state.panel_id=panel_id;p=selected_panel()
@@ -279,7 +279,7 @@ elif page in ['Panel Profile','Inspection']:
         c1,c2,c3=st.columns(3,gap='small')
         for col,label,val in [(c1,'Check Items','35'),(c2,'Last Result',last_status),(c3,'Open NG*',last_ng)]:
             with col:st.markdown(f'<div class="kpi" style="text-align:center;min-height:98px;padding:12px 3px"><div class="num" style="font-size:27px;margin:0">{val}</div><div class="label">{label}</div></div>',unsafe_allow_html=True)
-        st.caption('* Open NG ในต้นแบบคือจำนวนข้อ NG จากผลตรวจล่าสุด ยังไม่ใช่ยอดปัญหาคงค้างที่ยืนยันแล้ว')
+        st.caption('* Open NG แสดงจำนวนข้อ NG จากผลตรวจล่าสุด ไม่ใช่จำนวนปัญหาคงค้างที่ตรวจยืนยันแล้ว')
         fields=[('Panel ID',panel_id),('Shop',shop),('Area / Process',p['area']),('Panel Type',p['type']),('Inspection Cycle',p['cycle']),('Last Inspection',last['date'] if last else '—'),('Next Inspection','—')]
         rows=''.join(f'<div class="info-row"><span>{html(k)}</span><span>{html(v)}</span></div>' for k,v in fields)
         st.markdown('<div class="profile-table"><h3 style="margin:0 0 15px">Panel Information</h3>'+rows+'</div>',unsafe_allow_html=True)
@@ -358,4 +358,4 @@ elif page=='NG Tracking':
                 st.error(f"{record['panel']} • NG {record['NG']} ข้อ")
                 st.write(f"วันที่ {record['date']} | ผู้ตรวจ: {record['inspector']}")
                 st.write(record.get('notes', ''))
-    else:st.info('ยังไม่มี NG ที่บันทึกในตัวอย่าง')
+    else:st.info('ยังไม่มีรายการ NG ที่บันทึก')
