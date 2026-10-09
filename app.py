@@ -31,7 +31,7 @@ def initialize_database():
                 roles TEXT DEFAULT '', photo_data BYTEA, is_active BOOLEAN DEFAULT TRUE,
                 updated_at TIMESTAMPTZ DEFAULT NOW())""")
             for name, typ in [
-                ('area','TEXT'),('panel_type','TEXT'),('inspection_cycle','TEXT'),
+                ('area','TEXT'),('zone','TEXT'),('panel_type','TEXT'),('inspection_cycle','TEXT'),
                 ('white_employee_id','TEXT'),('yellow_employee_id','TEXT'),
                 ('inspector_employee_id','TEXT'),('repairer_employee_id','TEXT'),
                 ('verifier_employee_id','TEXT'),('panel_photo_data','BYTEA')]:
@@ -271,11 +271,12 @@ CHECKLIST_ITEMS = ['มีจุด Lockout และป้ายระบุท
 try:
     initialize_database()
     employees=query_all('SELECT employee_id,full_name,shop,shift,position,phone,roles,is_active FROM employees ORDER BY shop,full_name')
-    panel_rows=query_all('''SELECT panel_id,panel_name,shop,location,area,panel_type,inspection_cycle,
+    panel_rows=query_all('''SELECT panel_id,panel_name,shop,location,area,zone,panel_type,inspection_cycle,
         white_employee_id,yellow_employee_id,inspector_employee_id,repairer_employee_id,
         verifier_employee_id FROM control_panels WHERE is_active = TRUE ORDER BY panel_id''')
     st.session_state.panels=[dict(
         id=r['panel_id'],shop=r['shop'],area=r.get('area') or r.get('location') or '',
+        zone=r.get('zone') or '',
         name=r['panel_name'],type=r.get('panel_type') or 'Electrical Panel',
         cycle=r.get('inspection_cycle') or 'Monthly',
         white=r.get('white_employee_id') or '',yellow=r.get('yellow_employee_id') or '',
@@ -474,7 +475,7 @@ elif page in ['Panel Profile','Inspection']:
         for col,label,val in [(c1,'Check Items','35'),(c2,'Last Result',last_status),(c3,'Open NG*',last_ng)]:
             with col:st.markdown(f'<div class="kpi" style="text-align:center;min-height:98px;padding:12px 3px"><div class="num" style="font-size:27px;margin:0">{val}</div><div class="label">{label}</div></div>',unsafe_allow_html=True)
         st.caption('* Open NG แสดงจำนวนข้อ NG จากผลตรวจล่าสุด ไม่ใช่จำนวนปัญหาคงค้างที่ตรวจยืนยันแล้ว')
-        fields=[('Panel ID',panel_id),('Shop',shop),('Area / Process',p['area']),('Panel Type',p['type']),('Inspection Cycle',p['cycle']),('Last Inspection',last['date'] if last else '—'),('Next Inspection','—')]
+        fields=[('Panel ID',panel_id),('Shop',shop),('Machine Name',p['name']),('Zone',p.get('zone') or '—'),('Area / Process',p['area']),('Panel Type',p['type']),('Inspection Cycle',p['cycle']),('Last Inspection',last['date'] if last else '—'),('Next Inspection','—')]
         rows=''.join(f'<div class="info-row"><span>{html(k)}</span><span>{html(v)}</span></div>' for k,v in fields)
         st.markdown('<div class="profile-table"><h3 style="margin:0 0 15px">Panel Information</h3>'+rows+'</div>',unsafe_allow_html=True)
         st.subheader('Responsible Team — ผู้รับผิดชอบประจำตู้')
@@ -509,7 +510,7 @@ elif page in ['Panel Profile','Inspection']:
             st.download_button('ดาวน์โหลด QR Code',qr_bytes(panel_id),file_name=panel_id+'.png',mime='image/png')
         with st.expander('✏️ Edit Panel Profile',expanded=False):
             with st.form('edit_profile'):
-                edit_fields=[('name','ชื่อเครื่องจักร'),('area','Zone'),('type','ประเภทตู้'),('cycle','รอบตรวจ')]
+                edit_fields=[('name','ชื่อเครื่องจักร'),('zone','Zone'),('area','Area / Process'),('type','ประเภทตู้'),('cycle','รอบตรวจ')]
                 vals={k:st.text_input(label,value=p.get(k,'') or '') for k,label in edit_fields}
                 vals['white']=employee_picker('ผู้รับผิดชอบ White',employees,p.get('white',''),key='edit_white',shop=shop,shift='White')
                 vals['yellow']=employee_picker('ผู้รับผิดชอบ Yellow',employees,p.get('yellow',''),key='edit_yellow',shop=shop,shift='Yellow')
@@ -526,12 +527,12 @@ elif page in ['Panel Profile','Inspection']:
                             with db_conn() as conn:
                                 with conn.cursor() as cur:
                                     cur.execute("""UPDATE control_panels SET
-                                        panel_name=%s,location=%s,area=%s,panel_type=%s,inspection_cycle=%s,
+                                        panel_name=%s,location=%s,area=%s,zone=%s,panel_type=%s,inspection_cycle=%s,
                                         white_employee_id=%s,yellow_employee_id=%s,
                                         inspector_employee_id=%s,repairer_employee_id=%s,verifier_employee_id=%s,
                                         panel_photo_data=COALESCE(%s,panel_photo_data),updated_at=NOW()
                                         WHERE panel_id=%s""",
-                                        (vals['name'],vals['area'],vals['area'],vals['type'],vals['cycle'],
+                                        (vals['name'],vals['area'],vals['area'],vals['zone'],vals['type'],vals['cycle'],
                                          vals['white'] or None,vals['yellow'] or None,vals['inspector'] or None,
                                          vals['repairer'] or None,vals['verifier'] or None,
                                          psycopg2.Binary(photo) if photo else None,panel_id))
