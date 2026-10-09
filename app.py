@@ -189,6 +189,43 @@ section[data-testid="stSidebar"] button{background:#ffffff15!important;color:whi
 .staff-card .employee-field{font-size:11px;padding:9px 0;gap:6px}
 .staff-card .statuspill{font-size:11px;padding:5px 9px}
 }
+
+/* Readability upgrade: larger text on phones without changing application logic. */
+html, body, [data-testid="stAppViewContainer"] {font-size:17px}
+[data-testid="stAppViewContainer"] p, [data-testid="stAppViewContainer"] label,
+[data-testid="stAppViewContainer"] input, [data-testid="stAppViewContainer"] textarea,
+[data-testid="stAppViewContainer"] button {font-size:16px}
+[data-testid="stAppViewContainer"] h1{font-size:clamp(29px,5vw,39px)}
+[data-testid="stAppViewContainer"] h2{font-size:clamp(25px,4.5vw,33px)}
+[data-testid="stAppViewContainer"] h3{font-size:clamp(21px,4vw,27px)}
+.hero .brand{font-size:clamp(24px,4vw,34px)}
+.hero .subtitle,.profile-sub{font-size:17px}
+.kpi .label{font-size:16px}
+.kpi .num{font-size:clamp(30px,5vw,43px)}
+.sectionbox h3{font-size:22px}
+.info-row{font-size:17px;padding-bottom:12px}
+.statuspill,.staff-card .statuspill{font-size:14px}
+.staff-name{font-size:21px}
+.staff-card .employee-field{font-size:17px;padding:14px 0;gap:9px}
+.staff-card .employee-field span{white-space:normal;overflow-wrap:anywhere}
+.staff-card .employee-field b,.staff-card .employee-field strong{overflow-wrap:anywhere;text-align:right}
+.maintenance-heading{font-size:19px}
+@media(max-width:650px){
+  [data-testid="stAppViewContainer"] p,[data-testid="stAppViewContainer"] label,
+  [data-testid="stAppViewContainer"] input,[data-testid="stAppViewContainer"] textarea,
+  [data-testid="stAppViewContainer"] button{font-size:16px}
+  .kpi .label{font-size:14px}
+  .kpi .num{font-size:32px}
+  .info-row{font-size:16px}
+  .staff-card{grid-template-columns:minmax(105px,35%) minmax(0,1fr);gap:11px;padding:14px 10px}
+  .staff-photo{height:176px;max-width:190px}
+  .staff-name{font-size:17px;line-height:1.35}
+  .staff-card .employee-field{font-size:14px;padding:11px 0;gap:6px}
+  .staff-card .employee-field span{flex:0 1 45%}
+  .staff-card .employee-field b,.staff-card .employee-field strong{flex:1 1 55%}
+  .staff-card .statuspill{font-size:13px}
+}
+
 </style>""",unsafe_allow_html=True)
 
 def html(value):
