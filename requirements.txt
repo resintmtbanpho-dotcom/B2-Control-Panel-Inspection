@@ -4,4 +4,4 @@ Pillow
 qrcode[pil]
 pandas
 openpyxl
-streamlit-image-coordinates>=0.1.9
+streamlit-image-coordinates>=0.2.0
