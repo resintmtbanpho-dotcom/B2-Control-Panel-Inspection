@@ -1,6 +1,8 @@
 import streamlit as st
 from datetime import date
-from PIL import Image, ImageOps
+from PIL import Image, ImageOps, ImageDraw, ImageFont
+from streamlit_image_coordinates import streamlit_image_coordinates
+from pathlib import Path
 from io import BytesIO
 import qrcode
 import base64
@@ -34,7 +36,8 @@ def initialize_database():
                 ('area','TEXT'),('zone','TEXT'),('panel_type','TEXT'),('inspection_cycle','TEXT'),
                 ('white_employee_id','TEXT'),('yellow_employee_id','TEXT'),
                 ('inspector_employee_id','TEXT'),('repairer_employee_id','TEXT'),
-                ('verifier_employee_id','TEXT'),('panel_photo_data','BYTEA')]:
+                ('verifier_employee_id','TEXT'),('panel_photo_data','BYTEA'),
+                ('map_x','DOUBLE PRECISION'),('map_y','DOUBLE PRECISION')]:
                 cur.execute(f'ALTER TABLE control_panels ADD COLUMN IF NOT EXISTS {name} {typ}')
             cur.execute('SELECT COUNT(*) FROM control_panels')
             if cur.fetchone()[0] == 0:
@@ -328,7 +331,7 @@ try:
     employees=query_all('SELECT employee_id,full_name,shop,shift,position,phone,roles,is_active FROM employees ORDER BY shop,full_name')
     panel_rows=query_all('''SELECT panel_id,panel_name,shop,location,area,zone,panel_type,inspection_cycle,
         white_employee_id,yellow_employee_id,inspector_employee_id,repairer_employee_id,
-        verifier_employee_id FROM control_panels WHERE is_active = TRUE ORDER BY panel_id''')
+        verifier_employee_id,map_x,map_y FROM control_panels WHERE is_active = TRUE ORDER BY panel_id''')
     st.session_state.panels=[dict(
         id=r['panel_id'],shop=r['shop'],area=r.get('area') or r.get('location') or '',
         zone=r.get('zone') or '',
@@ -337,6 +340,7 @@ try:
         white=r.get('white_employee_id') or '',yellow=r.get('yellow_employee_id') or '',
         inspector=r.get('inspector_employee_id') or '',repairer=r.get('repairer_employee_id') or '',
         verifier=r.get('verifier_employee_id') or '',
+        map_x=r.get('map_x'),map_y=r.get('map_y'),
         photo=None)
         for r in panel_rows]
     result_rows=query_all("""SELECT i.id,i.panel_id,i.inspector_name,i.inspection_date,i.remarks,
@@ -475,12 +479,86 @@ if page=='Dashboard':
     st.caption('ตรวจสอบและปรับปรุงทะเบียนตู้ให้ตรงกับพื้นที่จริงก่อนเริ่มใช้งาน')
 elif page=='Factory Map':
     st.header(f'🗺️ Factory Map — {shop}')
-    st.warning('แสดงรายการตู้แยกตาม Zone · ยังไม่ได้เพิ่มภาพแผนผังโรงงานและพิกัดตู้')
-    zones=sorted(set(p['area'] for p in panels),key=lambda s:(int(s[1:]) if s[1:].isdigit() else 9999,s))
-    for z in zones:
-        with st.expander(f'{z} — {sum(p["area"]==z for p in panels)} ตู้'):
-            for p in panels:
-                if p['area']==z and st.button(p['id']+' • '+p['name'],key='map_'+p['id']):goto('Panel Profile',p['id'])
+    st.caption('แตะหมุดเพื่อดูข้อมูลตู้ หรือเลือกตู้และแตะตำแหน่งใหม่เพื่อปัก/ย้ายหมุด · บันทึกลง Neon อัตโนมัติเมื่อกดยืนยัน')
+    map_path=Path(__file__).resolve().parent / 'assets' / 'RSB_Control_Panel_Map.png'
+    if not map_path.exists():
+        st.error('ไม่พบไฟล์แผนผัง assets/RSB_Control_Panel_Map.png ใน GitHub')
+    elif shop != 'RSB':
+        st.info('แผนผังที่อัปโหลดเป็นของ RSB เท่านั้น · สามารถเพิ่มแผนผัง PTB แยกต่างหากได้')
+    else:
+        if not panels:
+            st.warning('ยังไม่มีทะเบียนตู้')
+        else:
+            mode=st.radio('โหมดแผนที่', ['🔎 ดูข้อมูลหมุด','📍 เพิ่ม / ย้ายหมุด'], horizontal=True, key='map_mode')
+            target_id=None
+            if mode=='📍 เพิ่ม / ย้ายหมุด':
+                target_id=st.selectbox('เลือก Panel ID ที่ต้องการปัก/ย้าย', [p['id'] for p in panels],
+                                       format_func=lambda pid: pid+' · '+next((p['name'] for p in panels if p['id']==pid),''))
+                st.info('แตะตำแหน่งบนแผนที่ → ตรวจสอบพิกัด → กดบันทึกหมุด (ยังไม่เปลี่ยนข้อมูลจนกดบันทึก)')
+            base=Image.open(map_path).convert('RGB')
+            display_w=min(1100,base.width)
+            display_h=round(base.height*display_w/base.width)
+            canvas=base.resize((display_w,display_h),Image.Resampling.LANCZOS)
+            draw=ImageDraw.Draw(canvas)
+            font=ImageFont.truetype('/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf', max(12,display_w//95)) if Path('/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf').exists() else ImageFont.load_default()
+            marked=[]
+            for item in panels:
+                if item.get('map_x') is None or item.get('map_y') is None: continue
+                x=round(float(item['map_x'])*display_w); y=round(float(item['map_y'])*display_h)
+                records=[r for r in st.session_state.inspections if r['panel']==item['id']]
+                last=records[-1] if records else None
+                color='#e33838' if last and last['NG'] else '#159765' if last else '#73858a'
+                draw.ellipse((x-12,y-12,x+12,y+12),fill=color,outline='white',width=3)
+                draw.text((x+14,y-10),item['id'].replace('CP-RSB-',''),fill='#06363d',font=font,stroke_width=2,stroke_fill='white')
+                marked.append((x,y,item))
+            # A unique key for each selection prevents stale click coordinates being reused.
+            click=streamlit_image_coordinates(canvas,width=display_w,key='map_image_'+mode+'_'+str(target_id))
+            if click:
+                x=int(click['x']); y=int(click['y'])
+                nearest=min(marked,key=lambda m:(m[0]-x)**2+(m[1]-y)**2) if marked else None
+                if mode=='🔎 ดูข้อมูลหมุด':
+                    if nearest and (nearest[0]-x)**2+(nearest[1]-y)**2<=32**2:
+                        st.session_state.map_selected_pin=nearest[2]['id']
+                    else: st.info('แตะตรงวงกลมหมุดเพื่อดูข้อมูลตู้')
+                else:
+                    st.session_state.map_pending=(target_id,max(0,min(1,x/display_w)),max(0,min(1,y/display_h)))
+            if mode=='📍 เพิ่ม / ย้ายหมุด':
+                pending=st.session_state.get('map_pending')
+                if pending and pending[0]==target_id:
+                    st.write(f'ตำแหน่งใหม่ของ **{target_id}**: X {pending[1]*100:.1f}% · Y {pending[2]*100:.1f}%')
+                    a,b=st.columns(2)
+                    if a.button('💾 บันทึกหมุด',type='primary',use_container_width=True):
+                        try:
+                            with db_conn() as conn:
+                                with conn.cursor() as cur:
+                                    cur.execute('UPDATE control_panels SET map_x=%s,map_y=%s,updated_at=NOW() WHERE panel_id=%s AND shop=%s',
+                                                (pending[1],pending[2],target_id,shop))
+                            st.session_state.pop('map_pending',None)
+                            refresh_database_cache()
+                            st.rerun()
+                        except Exception as exc: st.error(f'บันทึกพิกัดไม่สำเร็จ: {exc}')
+                    if b.button('ยกเลิก',use_container_width=True):
+                        st.session_state.pop('map_pending',None);st.rerun()
+                current=next((p for p in panels if p['id']==target_id),None)
+                if current and current.get('map_x') is not None:
+                    if st.button('🗑️ ลบหมุดของตู้นี้ (ไม่ลบทะเบียนตู้)'):
+                        with db_conn() as conn:
+                            with conn.cursor() as cur:
+                                cur.execute('UPDATE control_panels SET map_x=NULL,map_y=NULL,updated_at=NOW() WHERE panel_id=%s AND shop=%s',(target_id,shop))
+                        refresh_database_cache();st.rerun()
+            else:
+                selected=st.session_state.get('map_selected_pin')
+                item=next((p for p in panels if p['id']==selected and p.get('map_x') is not None),None)
+                if item:
+                    with st.container(border=True):
+                        st.subheader(f'📍 {item["id"]} — {item["name"]}')
+                        st.write(f'**Shop:** {item["shop"]} · **Zone:** {item.get("zone") or "—"} · **Area/Process:** {item["area"]} · **Type:** {item["type"]}')
+                        records=[r for r in st.session_state.inspections if r['panel']==item['id']]
+                        last=records[-1] if records else None
+                        st.write('**ผลตรวจล่าสุด:** '+('NG' if last and last['NG'] else 'OK' if last else 'ยังไม่ตรวจ'))
+                        if st.button('🔎 เปิด Panel Profile',type='primary'):
+                            goto('Panel Profile',item['id'])
+            st.caption(f'ปักหมุดแล้ว {len(marked)} / {len(panels)} ตู้ · พิกัดจัดเก็บตามสัดส่วนภาพ จึงไม่เปลี่ยนเมื่อแสดงผลต่างขนาด')
 elif page=='Panel List':
     st.header(f'📋 Panel List — {shop}')
     q=st.text_input('ค้นหารหัสตู้หรือชื่อเครื่องจักร')
