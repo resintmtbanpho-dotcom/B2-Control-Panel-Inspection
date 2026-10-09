@@ -152,12 +152,11 @@ section[data-testid="stSidebar"] button{background:#ffffff15!important;color:whi
 .person .avatar{height:78px;width:78px;border-radius:50%;background:#e3f4ef;display:flex;align-items:center;justify-content:center;font-size:30px;margin:12px auto}
 .person .name{font-weight:800;margin:9px 0 5px;color:#183b40}.person .meta{font-size:12px;color:#668084;overflow-wrap:anywhere}
 .role{background:#fff;border:1px solid #dce8e9;padding:15px 18px;border-radius:14px;margin:9px 0}.role small{color:#647b7f}
-/* Bottom navigation: Streamlit buttons remain real controls, not decorative links. */
-.st-key-b2_bottom_nav{position:fixed;bottom:0;left:50%;transform:translateX(-50%);width:min(100%,1160px);z-index:999;background:linear-gradient(110deg,#053840,#00605d);border-radius:16px 16px 0 0;padding:8px 12px max(9px,env(safe-area-inset-bottom));box-shadow:0 -5px 24px #0a353536}
-.st-key-b2_bottom_nav [data-testid="stHorizontalBlock"]{gap:.3rem}
-.st-key-b2_bottom_nav .stButton>button{background:transparent!important;border:0!important;color:#fff!important;min-height:48px;padding:5px 2px;font-size:clamp(10px,1.8vw,13px);white-space:normal}
-.st-key-b2_bottom_nav .stButton>button:hover{background:#ffffff20!important}
-@media(max-width:650px){.block-container{padding-left:12px;padding-right:12px;padding-top:.7rem;padding-bottom:7rem}.hero{padding:22px 16px;border-radius:15px}.hero .pill{font-size:10px}.kpi{min-height:112px;padding:14px 10px}.kpi .label{font-size:11px}.kpi .num{font-size:29px}.sectionbox,.profile-table{padding:15px}.person{min-height:185px;padding:12px 5px}.info-row{font-size:12px}.st-key-b2_bottom_nav{border-radius:14px 14px 0 0;padding-left:5px;padding-right:5px}.st-key-b2_bottom_nav .stButton>button{font-size:10px;line-height:1.2}}
+/* Compact floating menu at the bottom-left, no full-width overlay. */
+.st-key-b2_floating_menu {position:fixed;left:16px;bottom:calc(16px + env(safe-area-inset-bottom));z-index:999;width:max-content!important;max-width:calc(100vw - 32px)}
+.st-key-b2_floating_menu [data-testid="stPopover"]>button {background:linear-gradient(130deg,#063b43,#087569)!important;color:#fff!important;border:1px solid #4fa99b!important;border-radius:999px!important;min-width:62px;min-height:56px;box-shadow:0 5px 18px #052e3466;font-size:18px;font-weight:800;padding:8px 15px}
+.st-key-b2_floating_menu [data-testid="stPopover"]>button:hover {background:#09695f!important}
+@media(max-width:650px){.block-container{padding-left:12px;padding-right:12px;padding-top:.7rem;padding-bottom:4.5rem}.hero{padding:22px 16px;border-radius:15px}.hero .pill{font-size:10px}.kpi{min-height:112px;padding:14px 10px}.kpi .label{font-size:11px}.kpi .num{font-size:29px}.sectionbox,.profile-table{padding:15px}.person{min-height:185px;padding:12px 5px}.info-row{font-size:12px}.st-key-b2_floating_menu{left:12px;bottom:calc(12px + env(safe-area-inset-bottom))}}
 </style>""",unsafe_allow_html=True)
 
 def html(value):
@@ -606,16 +605,19 @@ elif page=='Employee Master':
             except Exception as exc:st.error(f'อ่านหรือนำเข้าไฟล์ไม่สำเร็จ: {exc}')
 
 
-# Mobile-first quick navigation. Keep native Streamlit buttons for working actions.
-with st.container(key='b2_bottom_nav'):
-    nav_cols = st.columns(5, gap='small')
-    nav_actions = [
-        ('🏠\nหน้าแรก', 'Dashboard'),
-        ('🗺️\nแผนที่', 'Factory Map'),
-        ('▦\nรายการตู้', 'Panel List'),
-        ('⚠️\nNG', 'NG Tracking'),
-        ('👤\nพนักงาน', 'Employee Master'),
-    ]
-    for nav_col, (nav_label, nav_target) in zip(nav_cols, nav_actions):
-        if nav_col.button(nav_label, key='bottom_'+nav_target.replace(' ','_'), use_container_width=True):
-            goto(nav_target)
+# Collapsible floating navigation. No screen-wide fixed footer blocking content.
+with st.container(key='b2_floating_menu'):
+    with st.popover('☰ เมนู'):
+        st.markdown('**เมนูหลัก**')
+        nav_actions = [
+            ('🏠 หน้าแรก', 'Dashboard'),
+            ('🗺️ แผนที่', 'Factory Map'),
+            ('▦ รายการตู้', 'Panel List'),
+            ('📋 โปรไฟล์ตู้', 'Panel Profile'),
+            ('☑️ ตรวจสอบ', 'Inspection'),
+            ('⚠️ รายการ NG', 'NG Tracking'),
+            ('👤 พนักงาน', 'Employee Master'),
+        ]
+        for nav_label, nav_target in nav_actions:
+            if st.button(nav_label, key='float_'+nav_target.replace(' ','_'), use_container_width=True):
+                goto(nav_target)
