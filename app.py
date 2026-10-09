@@ -275,7 +275,9 @@ elif page in ['Panel Profile','Inspection']:
                 else:st.write('ยังไม่มีประวัติการตรวจ')
         if st.session_state.get('show_qr'):
             if not st.secrets.get('APP_BASE_URL', ''): st.warning('ก่อนพิมพ์ QR ต้องตั้งค่า APP_BASE_URL ใน Streamlit Secrets ให้เป็น URL เว็บจริง')
-            st.image(qr_bytes(panel_id),width=180,caption='QR Code Scan สำหรับ ตรวจสอบตู้ไฟคอนโทรล')
+            st.image(qr_bytes(panel_id), width=180)
+            st.markdown(f"**{panel_id}**")
+            st.caption("Scan to Profile")
             st.download_button('ดาวน์โหลด QR Code',qr_bytes(panel_id),file_name=panel_id+'.png',mime='image/png')
         with st.expander('✏️ Edit Panel Profile',expanded=False):
             with st.form('edit_profile'):
