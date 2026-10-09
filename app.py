@@ -1,6 +1,6 @@
 import streamlit as st
 from datetime import date
-from PIL import Image
+from PIL import Image, ImageOps
 from io import BytesIO
 import qrcode
 import base64
@@ -47,11 +47,23 @@ div[data-testid="stMetric"] {background:#f1f2f2;padding:14px;border-radius:18px;
 def html(value):
     return escape(str(value if value not in (None,'') else '—'))
 
-def compress_image(upload, max_dim=1000):
-    img=Image.open(upload).convert('RGB')
-    img.thumbnail((max_dim,max_dim))
-    out=BytesIO();img.save(out,'WEBP',quality=62,method=6)
-    return out.getvalue()
+def compress_image(upload, max_dim=1400, target_kb=250):
+    """Compress to WebP, keeping labels and electrical details readable."""
+    upload.seek(0)
+    with Image.open(upload) as source:
+        img = ImageOps.exif_transpose(source).convert('RGB')
+    img.thumbnail((max_dim, max_dim), Image.Resampling.LANCZOS)
+
+    # Start at high visual quality. Lower quality only if needed to save space.
+    target_bytes = target_kb * 1024
+    best = None
+    for quality in (84, 80, 76, 72, 68):
+        out = BytesIO()
+        img.save(out, 'WEBP', quality=quality, method=6)
+        best = out.getvalue()
+        if len(best) <= target_bytes:
+            break
+    return best
 
 def img_data(raw):
     return 'data:image/webp;base64,'+base64.b64encode(raw).decode('ascii')
@@ -285,12 +297,13 @@ elif page in ['Panel Profile','Inspection']:
                 vals={k:st.text_input(label,value=p.get(k,'') or '') for k,label in edit_fields}
                 uploads={}
                 for key,label in [('photo','รูปตู้'),('white_photo','รูปผู้รับผิดชอบ White'),('yellow_photo','รูปผู้รับผิดชอบ Yellow'),('inspector_photo','รูปผู้ตรวจสอบ'),('repairer_photo','รูปผู้แก้ไข'),('verifier_photo','รูปผู้ตรวจยืนยัน')]:
-                    uploads[key]=st.file_uploader(label+' (WebP Auto Compression)',type=['jpg','jpeg','png','webp'],key='up_'+key)
+                    uploads[key]=st.file_uploader(label+' (บีบอัด WebP อัตโนมัติ: ภาพคมชัด ไฟล์เล็ก)',type=['jpg','jpeg','png','webp'],key='up_'+key)
                 if st.form_submit_button('บันทึกข้อมูล (Demo)',type='primary'):
                     p.update(vals)
                     try:
                         for key,upload in uploads.items():
-                            if upload:p[key]=compress_image(upload,max_dim=1000 if key=='photo' else 500)
+                            if upload:
+                                p[key]=compress_image(upload, max_dim=1400 if key=='photo' else 600, target_kb=250 if key=='photo' else 80)
                         st.success('บันทึกใน Session แล้ว (ยังไม่ถาวร)');st.rerun()
                     except Exception as exc:st.error(f'ไม่สามารถประมวลผลรูปภาพ: {exc}')
         if st.button(f'▥  Dashboard — {shop}  →',type='primary',use_container_width=True):goto('Dashboard')
