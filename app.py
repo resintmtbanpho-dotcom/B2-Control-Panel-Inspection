@@ -170,6 +170,25 @@ section[data-testid="stSidebar"] button{background:#ffffff15!important;color:whi
 .maintenance-heading{width:100%;display:flex;align-items:center;gap:10px;font-size:16px;color:#163b40}
 .maintenance-heading span{font-size:23px}
 @media(max-width:650px){.employee-card,.maintenance-card{padding:14px 9px!important}.employee-avatar{width:78px;height:78px}.employee-field{font-size:11px;gap:5px}}
+
+/* Compact horizontal employee profile cards: large portrait on left, metadata on right. */
+.staff-card{display:grid;grid-template-columns:minmax(155px,30%) minmax(0,1fr);gap:22px;align-items:center;background:#fff;border:1px solid #dce8e9;border-radius:18px;padding:18px 22px;margin:12px 0 16px;box-shadow:0 4px 14px #123a3c0c;min-width:0}
+.staff-identity{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;min-width:0;text-align:center}
+.staff-photo{display:block;width:100%;max-width:210px;height:205px;object-fit:contain;object-position:center center;border-radius:15px;background:#edf3f2}
+.staff-photo-empty{display:flex;align-items:center;justify-content:center;font-size:52px}
+.staff-name{font-size:19px;font-weight:800;color:#183b40;line-height:1.35;overflow-wrap:anywhere}
+.staff-information{min-width:0}
+.staff-card .employee-fields{width:100%;max-width:none;margin:0}
+.staff-card .employee-field{font-size:14px;padding:13px 0;gap:12px}
+.staff-card .employee-field:first-child{border-top:0}
+.staff-card .employee-field span{white-space:nowrap}
+@media(max-width:650px){
+.staff-card{grid-template-columns:minmax(112px,37%) minmax(0,1fr);gap:12px;padding:13px 11px;border-radius:15px}
+.staff-photo{height:166px;max-width:170px}
+.staff-name{font-size:14px}
+.staff-card .employee-field{font-size:11px;padding:9px 0;gap:6px}
+.staff-card .statuspill{font-size:11px;padding:5px 9px}
+}
 </style>""",unsafe_allow_html=True)
 
 def html(value):
@@ -211,23 +230,22 @@ def employee_meta(employee):
         f'<div class="employee-field"><span>{html(label)}</span><b>{html(value)}</b></div>'
         for label, value in fields) + '</div>'
 
-def person_card(title, employee, photo, shift):
+def _staff_card(title, employee, photo, badge_color, icon=''):
     name = html(employee.get('full_name') if employee else 'ยังไม่ระบุชื่อ')
-    if photo:
-        avatar = f'<img src="{img_data(photo)}" class="employee-avatar" alt="Employee photo">'
-    else:
-        avatar = '<div class="employee-avatar employee-avatar-empty">👤</div>'
+    avatar = (f'<img src="{img_data(photo)}" class="staff-photo" alt="Employee photo">'
+              if photo else '<div class="staff-photo staff-photo-empty">👤</div>')
+    return (f'<div class="staff-card">'
+            f'<div class="staff-identity">'
+            f'<span class="statuspill" style="background:{badge_color}">{html(icon + title)}</span>'
+            f'{avatar}<div class="staff-name">{name}</div></div>'
+            f'<div class="staff-information">{employee_meta(employee)}</div></div>')
+
+def person_card(title, employee, photo, shift):
     bg = '#e4e5e5' if shift == 'White' else '#f4e0d4'
-    return (f'<div class="person employee-card"><span class="statuspill" style="background:{bg}">{html(title)}</span>'
-            f'{avatar}<div class="name">{name}</div>{employee_meta(employee)}</div>')
+    return _staff_card(title, employee, photo, bg)
 
 def maintenance_card(title, employee, photo, icon):
-    name = html(employee.get('full_name') if employee else 'ยังไม่ระบุชื่อ')
-    avatar = (f'<img src="{img_data(photo)}" class="employee-avatar" alt="Employee photo">'
-              if photo else '<div class="employee-avatar employee-avatar-empty">👤</div>')
-    return (f'<div class="role maintenance-card"><div class="maintenance-heading">'
-            f'<span>{html(icon)}</span><strong>{html(title)}</strong></div>'
-            f'{avatar}<div class="name">{name}</div>{employee_meta(employee)}</div>')
+    return _staff_card(title, employee, photo, '#e8f4f1', icon + '  ')
 
 def kpi_card(label,value,color='#111',icon='▦'):
     return f'<div class="kpi" style="--kpi-accent:{color}"><div class="label">{icon} &nbsp; {label}</div><div class="num" style="color:{color}">{value}</div></div>'
@@ -479,11 +497,8 @@ elif page in ['Panel Profile','Inspection']:
         rows=''.join(f'<div class="info-row"><span>{html(k)}</span><span>{html(v)}</span></div>' for k,v in fields)
         st.markdown('<div class="profile-table"><h3 style="margin:0 0 15px">Panel Information</h3>'+rows+'</div>',unsafe_allow_html=True)
         st.subheader('Responsible Team — ผู้รับผิดชอบประจำตู้')
-        c1,c2=st.columns(2,gap='small')
-        with c1:
-            st.markdown(person_card('White Shift',employee_details(p.get('white'),employees),employee_photo(p.get('white'),employees),'White'),unsafe_allow_html=True)
-        with c2:
-            st.markdown(person_card('Yellow Shift',employee_details(p.get('yellow'),employees),employee_photo(p.get('yellow'),employees),'Yellow'),unsafe_allow_html=True)
+        st.markdown(person_card('White Shift',employee_details(p.get('white'),employees),employee_photo(p.get('white'),employees),'White'),unsafe_allow_html=True)
+        st.markdown(person_card('Yellow Shift',employee_details(p.get('yellow'),employees),employee_photo(p.get('yellow'),employees),'Yellow'),unsafe_allow_html=True)
         st.markdown('### Inspection & Maintenance')
         for label,key,icon in [('ผู้ตรวจสอบล่าสุด','inspector','☑'),('ผู้รับผิดชอบแก้ไข NG','repairer','🔧'),('ผู้ตรวจยืนยันหลังแก้ไข','verifier','✓')]:
             employee = employee_details(p.get(key),employees)
