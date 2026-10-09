@@ -184,7 +184,7 @@ def qr_bytes(panel_id):
 st.caption(f'{shop} SHOP  ·  DEMO — ข้อมูลยังอยู่ใน Session และไม่ได้เชื่อม Supabase')
 if page=='Dashboard':
     accent='#204b50' if shop=='RSB' else '#a34c22'
-    st.markdown(f'<div class="hero" style="background:{accent}"><span class="pill">{shop} ONLY</span><div class="brand">B2 CONTROL PANEL INSPECTION</div><div class="subtitle">Dashboard — {shop} Shop</div></div>',unsafe_allow_html=True)
+    st.markdown(f'<div class="hero" style="background:{accent}"><span class="pill">{shop} ONLINE</span><div class="brand">B2 CONTROL PANEL INSPECTION</div><div class="subtitle">Dashboard — {shop} Shop</div></div>',unsafe_allow_html=True)
     mcol,scol=st.columns(2)
     with mcol: month=st.selectbox('Month',list(range(1,13)),index=date.today().month-1,format_func=lambda m:['มกราคม','กุมภาพันธ์','มีนาคม','เมษายน','พฤษภาคม','มิถุนายน','กรกฎาคม','สิงหาคม','กันยายน','ตุลาคม','พฤศจิกายน','ธันวาคม'][m-1])
     with scol: status=st.selectbox('Status',['ทุกสถานะ','OK','NG','Pending','Overdue'])
