@@ -136,7 +136,7 @@ CHECKLIST_ITEMS = ['มีจุด Lockout และป้ายระบุท
  'ตู้ Control Panel ทุกตู้มีสายดินหลัก (Main Ground)',
  'ไม่มีวัสดุติดไฟหรือสิ่งของไม่จำเป็นภายในตู้ เช่น กระดาษ หรือวัสดุพันสายที่ไม่เหมาะสม']
 
-# Demo data only. Replace with Supabase queries before production deployment.
+# data only. Replace with Supabase queries before production deployment.
 if 'panels' not in st.session_state:
     st.session_state.panels = [dict(id=f'CP-RSB-{i:03d}',shop='RSB',area=['L1','L2','L3','L4','L5','L6','L7','L8','L9','L10','L11'][(i-1)%11],name='Injection 2500T' if i==1 else f'Control Panel {i:03d}',type='Electrical Panel',cycle='Monthly',white='',yellow='',inspector='',repairer='',photo=None) for i in range(1,68)]
 if 'inspections' not in st.session_state: st.session_state.inspections=[]
@@ -181,7 +181,7 @@ def qr_bytes(panel_id):
     img=qrcode.make(url)
     b=BytesIO();img.save(b,format='PNG');return b.getvalue()
 
-st.caption(f'{shop} SHOP  ·  DEMO — ข้อมูลยังอยู่ใน Session และไม่ได้เชื่อม Supabase')
+st.caption(f'{shop} SHOP  ·— ข้อมูลยังอยู่ใน Session และไม่ได้เชื่อม Supabase')
 if page=='Dashboard':
     accent='#204b50' if shop=='RSB' else '#a34c22'
     st.markdown(f'<div class="hero" style="background:{accent}"><span class="pill">{shop} ONLINE</span><div class="brand">B2 CONTROL PANEL INSPECTION</div><div class="subtitle">Dashboard — {shop} Shop</div></div>',unsafe_allow_html=True)
@@ -253,7 +253,7 @@ elif page=='Panel List':
             new_id=st.text_input('Panel ID',placeholder=f'CP-{shop}-001')
             new_name=st.text_input('Panel Name')
             new_area=st.text_input('Area / Zone')
-            if st.form_submit_button('เพิ่มตู้ (Demo)'):
+            if st.form_submit_button('เพิ่มตู้'):
                 if not new_id.startswith(f'CP-{shop}-') or any(p['id']==new_id for p in st.session_state.panels):st.error('รหัสซ้ำหรือไม่ตรง Shop')
                 elif not new_name or not new_area:st.error('กรอกข้อมูลให้ครบ')
                 else:
@@ -301,7 +301,7 @@ elif page in ['Panel Profile','Inspection']:
         if a.button('▦  QR Code',use_container_width=True):st.session_state.show_qr=True
         if b.button('▱  Documents',use_container_width=True):st.info('Documents: ยังไม่เชื่อมระบบจัดเก็บไฟล์')
         if st.session_state.get('show_history'):
-            with st.expander('Inspection History (Demo)',expanded=True):
+            with st.expander('Inspection History',expanded=True):
                 if current:
                     for r in reversed(current):st.write(f'{r["date"]} • {r["inspector"]} • OK {r["OK"]} / NG {r["NG"]} / N/A {r["NA"]}')
                 else:st.write('ยังไม่มีประวัติการตรวจ')
@@ -318,7 +318,7 @@ elif page in ['Panel Profile','Inspection']:
                 uploads={}
                 for key,label in [('photo','รูปตู้'),('white_photo','รูปผู้รับผิดชอบ White'),('yellow_photo','รูปผู้รับผิดชอบ Yellow'),('inspector_photo','รูปผู้ตรวจสอบ'),('repairer_photo','รูปผู้แก้ไข'),('verifier_photo','รูปผู้ตรวจยืนยัน')]:
                     uploads[key]=st.file_uploader(label+' (บีบอัด WebP อัตโนมัติ: ภาพคมชัด ไฟล์เล็ก)',type=['jpg','jpeg','png','webp'],key='up_'+key)
-                if st.form_submit_button('บันทึกข้อมูล (Demo)',type='primary'):
+                if st.form_submit_button('บันทึกข้อมูล',type='primary'):
                     p.update(vals)
                     try:
                         for key,upload in uploads.items():
@@ -343,7 +343,7 @@ elif page in ['Panel Profile','Inspection']:
                         st.markdown(f'**ข้อ {n:02d}. {checklist_items[n-1]}**')
                         answers[n]=st.radio(f'ผลตรวจข้อ {n:02d}', ['ยังไม่ตรวจ','OK','NG','N/A'],horizontal=True,key=f'check_{panel_id}_{n}',label_visibility='collapsed')
             notes=st.text_area('หมายเหตุ / รายละเอียด NG')
-            if st.form_submit_button('ส่งผลตรวจ (Demo)',type='primary'):
+            if st.form_submit_button('ส่งผลตรวจ',type='primary'):
                 if not inspector.strip():st.error('กรุณาระบุชื่อผู้ตรวจสอบ')
                 elif any(v=='ยังไม่ตรวจ' for v in answers.values()):st.error('กรุณาตรวจให้ครบ 35 ข้อ')
                 elif 'NG' in answers.values() and not notes.strip():st.error('กรุณาระบุรายละเอียด NG')
