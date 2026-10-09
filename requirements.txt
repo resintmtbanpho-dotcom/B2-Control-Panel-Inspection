@@ -1,4 +1,6 @@
-streamlit>=1.38,<2
-Pillow>=10,<13
-qrcode[pil]>=7.4,<9
+streamlit
 psycopg2-binary
+Pillow
+qrcode[pil]
+pandas
+openpyxl

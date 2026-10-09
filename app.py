@@ -9,24 +9,85 @@ from datetime import datetime
 
 st.set_page_config(page_title='B2 Control Panel Inspection', page_icon='⚡', layout='wide') 
 import psycopg2
+from psycopg2.extras import RealDictCursor
+import pandas as pd
 
-try:
-    conn = psycopg2.connect(
-        st.secrets["DATABASE_URL"],
-        connect_timeout=10
-    )
-    with conn.cursor() as cur:
-        cur.execute("SELECT current_database(), COUNT(*) FROM information_schema.tables WHERE table_schema = 'public' AND table_name IN ('control_panels', 'inspection_items', 'inspections', 'inspection_results')")
-        db_name, table_count = cur.fetchone()
-    conn.close()
+@st.cache_resource
+def database_url():
+    return st.secrets["DATABASE_URL"]
 
-    if table_count == 4:
-        st.success(f"✅ Neon Connected! Database: {db_name} | Tables: {table_count}/4")
-    else:
-        st.warning(f"เชื่อมต่อได้ แต่พบตาราง {table_count}/4")
+def db_conn():
+    return psycopg2.connect(database_url(), connect_timeout=12)
 
-except Exception:
-    st.error("❌ ไม่สามารถเชื่อมต่อ Neon Database ได้ กรุณาตรวจสอบ DATABASE_URL ใน Streamlit Secrets")
+def initialize_database():
+    # Existing Neon tables are retained; migrations only add missing columns.
+    with db_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""CREATE TABLE IF NOT EXISTS employees (
+                employee_id TEXT PRIMARY KEY, full_name TEXT NOT NULL,
+                shop TEXT NOT NULL CHECK(shop IN ('RSB','PTB')),
+                shift TEXT DEFAULT '', position TEXT DEFAULT '', phone TEXT DEFAULT '',
+                roles TEXT DEFAULT '', photo_data BYTEA, is_active BOOLEAN DEFAULT TRUE,
+                updated_at TIMESTAMPTZ DEFAULT NOW())""")
+            for name, typ in [
+                ('area','TEXT'),('panel_type','TEXT'),('inspection_cycle','TEXT'),
+                ('white_employee_id','TEXT'),('yellow_employee_id','TEXT'),
+                ('inspector_employee_id','TEXT'),('repairer_employee_id','TEXT'),
+                ('verifier_employee_id','TEXT'),('panel_photo_data','BYTEA')]:
+                cur.execute(f'ALTER TABLE control_panels ADD COLUMN IF NOT EXISTS {name} {typ}')
+            cur.execute('SELECT COUNT(*) FROM control_panels')
+            if cur.fetchone()[0] == 0:
+                for i in range(1,68):
+                    area=f'L{((i-1)%11)+1}'
+                    name='Injection 2500T' if i==1 else f'Control Panel {i:03d}'
+                    cur.execute("""INSERT INTO control_panels
+                        (panel_id,panel_name,shop,location,area,panel_type,inspection_cycle)
+                        VALUES (%s,%s,'RSB',%s,%s,'Electrical Panel','Monthly')
+                        ON CONFLICT (panel_id) DO NOTHING""",(f'CP-RSB-{i:03d}',name,area,area))
+            categories=[('A. Identification & LOTO',6),('B. Panel Protection',7),
+                        ('C. Electrical Components & Wiring',10),('D. Preventive Maintenance',4),
+                        ('E. Charging Equipment',2),('F. Breaker Inspection',3),
+                        ('G. Safety & Housekeeping',3)]
+            idx=0
+            for cat,n in categories:
+                for _ in range(n):
+                    idx+=1
+                    cur.execute("""INSERT INTO inspection_items(item_no,category,description)
+                        VALUES (%s,%s,%s) ON CONFLICT (item_no) DO NOTHING""",(idx,cat,CHECKLIST_ITEMS[idx-1]))
+
+def query_all(sql, params=()):
+    with db_conn() as conn:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute(sql,params)
+            return [dict(row) for row in cur.fetchall()]
+
+def save_employee(employee_id, name, shop, shift, position, phone, roles, photo):
+    with db_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""INSERT INTO employees
+                (employee_id,full_name,shop,shift,position,phone,roles,photo_data)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
+                ON CONFLICT(employee_id) DO UPDATE SET
+                full_name=EXCLUDED.full_name,shop=EXCLUDED.shop,shift=EXCLUDED.shift,
+                position=EXCLUDED.position,phone=EXCLUDED.phone,roles=EXCLUDED.roles,
+                photo_data=COALESCE(EXCLUDED.photo_data,employees.photo_data),updated_at=NOW()""",
+                (employee_id,name,shop,shift,position,phone,roles,psycopg2.Binary(photo) if photo else None))
+
+def employee_label(employee_id, employees):
+    employee=next((e for e in employees if e['employee_id']==employee_id),None)
+    return employee['full_name'] if employee else ''
+
+def employee_photo(employee_id, employees):
+    employee=next((e for e in employees if e['employee_id']==employee_id),None)
+    return bytes(employee['photo_data']) if employee and employee.get('photo_data') else None
+
+def employee_picker(label, employees, current_id='', key=None, shop=None, shift=None):
+    available=[e for e in employees if e['is_active'] and (not shop or e['shop']==shop)
+               and (not shift or e['shift'] in (shift,'','Day'))]
+    choices=['']+[e['employee_id'] for e in available]
+    if current_id and current_id not in choices: choices.append(current_id)
+    return st.selectbox(label, choices, index=choices.index(current_id) if current_id in choices else 0,
+                        format_func=lambda eid: (f"{eid} · {employee_label(eid,employees)}" if eid else '— เลือกพนักงาน —'),key=key)
 
 st.markdown("""<style>
 .stApp {background:#fbfcfc;color:#202628}
@@ -136,10 +197,32 @@ CHECKLIST_ITEMS = ['มีจุด Lockout และป้ายระบุท
  'ตู้ Control Panel ทุกตู้มีสายดินหลัก (Main Ground)',
  'ไม่มีวัสดุติดไฟหรือสิ่งของไม่จำเป็นภายในตู้ เช่น กระดาษ หรือวัสดุพันสายที่ไม่เหมาะสม']
 
-# Panel and inspection records currently use session state; persistent Neon writes are not yet implemented.
-if 'panels' not in st.session_state:
-    st.session_state.panels = [dict(id=f'CP-RSB-{i:03d}',shop='RSB',area=['L1','L2','L3','L4','L5','L6','L7','L8','L9','L10','L11'][(i-1)%11],name='Injection 2500T' if i==1 else f'Control Panel {i:03d}',type='Electrical Panel',cycle='Monthly',white='',yellow='',inspector='',repairer='',photo=None) for i in range(1,68)]
-if 'inspections' not in st.session_state: st.session_state.inspections=[]
+try:
+    initialize_database()
+    employees=query_all('SELECT * FROM employees ORDER BY shop,full_name')
+    panel_rows=query_all('SELECT * FROM control_panels WHERE is_active = TRUE ORDER BY panel_id')
+    st.session_state.panels=[dict(
+        id=r['panel_id'],shop=r['shop'],area=r.get('area') or r.get('location') or '',
+        name=r['panel_name'],type=r.get('panel_type') or 'Electrical Panel',
+        cycle=r.get('inspection_cycle') or 'Monthly',
+        white=r.get('white_employee_id') or '',yellow=r.get('yellow_employee_id') or '',
+        inspector=r.get('inspector_employee_id') or '',repairer=r.get('repairer_employee_id') or '',
+        verifier=r.get('verifier_employee_id') or '',
+        photo=bytes(r['panel_photo_data']) if r.get('panel_photo_data') else None)
+        for r in panel_rows]
+    result_rows=query_all("""SELECT i.id,i.panel_id,i.inspector_name,i.inspection_date,i.remarks,
+        p.shop,COUNT(*) FILTER (WHERE r.result='OK') AS ok,
+        COUNT(*) FILTER (WHERE r.result='NG') AS ng,
+        COUNT(*) FILTER (WHERE r.result='N/A') AS na
+        FROM inspections i JOIN control_panels p ON p.panel_id=i.panel_id
+        LEFT JOIN inspection_results r ON r.inspection_id=i.id
+        GROUP BY i.id,p.shop ORDER BY i.inspection_date,i.id""")
+    st.session_state.inspections=[dict(shop=r['shop'],panel=r['panel_id'],date=str(r['inspection_date']),
+        inspector=r['inspector_name'],OK=r['ok'],NG=r['ng'],NA=r['na'],notes=r['remarks'] or '') for r in result_rows]
+except Exception as exc:
+    st.error('ไม่สามารถโหลดข้อมูลจาก Neon ได้ กรุณาตรวจสอบ DATABASE_URL และสิทธิ์ของฐานข้อมูล')
+    st.exception(exc)
+    st.stop()
 if 'page' not in st.session_state: st.session_state.page='Dashboard'
 if 'panel_id' not in st.session_state: st.session_state.panel_id='CP-RSB-001'
 
@@ -157,7 +240,7 @@ if qr_panel and not st.session_state.get('qr_entry_loaded'):
 
 shop=st.sidebar.radio('Shop', ['RSB','PTB'],index=1 if st.session_state.panel_id.startswith('CP-PTB-') else 0)
 st.sidebar.caption('แต่ละ Shop แยก Dashboard และข้อมูลโดยสมบูรณ์')
-menu=['Dashboard','Factory Map','Panel List','Panel Profile','Inspection','NG Tracking']
+menu=['Dashboard','Factory Map','Panel List','Panel Profile','Inspection','NG Tracking','Employee Master']
 if 'nav_page' not in st.session_state: st.session_state.nav_page=st.session_state.page
 # Apply navigation on the next rerun, BEFORE the radio widget is instantiated.
 if 'pending_page' in st.session_state:
@@ -181,7 +264,7 @@ def qr_bytes(panel_id):
     img=qrcode.make(url)
     b=BytesIO();img.save(b,format='PNG');return b.getvalue()
 
-st.caption(f'{shop} SHOP · ฐานข้อมูล Neon เชื่อมต่อแล้ว · ข้อมูลทะเบียนตู้และผลตรวจยังไม่ได้บันทึกถาวร')
+st.caption(f'{shop} SHOP · Neon Database')
 if page=='Dashboard':
     accent='#204b50' if shop=='RSB' else '#a34c22'
     st.markdown(f'<div class="hero" style="background:{accent}"><span class="pill">{shop} ONLINE</span><div class="brand">B2 CONTROL PANEL INSPECTION</div><div class="subtitle">Dashboard — {shop} Shop</div></div>',unsafe_allow_html=True)
@@ -232,11 +315,11 @@ if page=='Dashboard':
     c1,c2=st.columns(2)
     if c1.button('☷  Panel List',use_container_width=True):goto('Panel List')
     if c2.button(f'▧  {shop} Map',use_container_width=True):goto('Factory Map')
-    st.caption('ทะเบียนตู้ RSB เริ่มต้น 67 รายการ (โปรดตรวจสอบข้อมูลจริง) · PTB ยังไม่ขึ้นทะเบียน')
+    st.caption('ตรวจสอบและปรับปรุงทะเบียนตู้ให้ตรงกับพื้นที่จริงก่อนเริ่มใช้งาน')
 elif page=='Factory Map':
     st.header(f'🗺️ Factory Map — {shop}')
     st.warning('แสดงรายการตู้แยกตาม Zone · ยังไม่ได้เพิ่มภาพแผนผังโรงงานและพิกัดตู้')
-    zones=sorted(set(p['area'] for p in panels),key=lambda s:int(s[1:]))
+    zones=sorted(set(p['area'] for p in panels),key=lambda s:(int(s[1:]) if s[1:].isdigit() else 9999,s))
     for z in zones:
         with st.expander(f'{z} — {sum(p["area"]==z for p in panels)} ตู้'):
             for p in panels:
@@ -257,7 +340,13 @@ elif page=='Panel List':
                 if not new_id.startswith(f'CP-{shop}-') or any(p['id']==new_id for p in st.session_state.panels):st.error('รหัสซ้ำหรือไม่ตรง Shop')
                 elif not new_name or not new_area:st.error('กรอกข้อมูลให้ครบ')
                 else:
-                    st.session_state.panels.append(dict(id=new_id,shop=shop,area=new_area,name=new_name,type='Electrical Panel',cycle='Monthly',white='',yellow='',inspector='',repairer='',photo=None));st.rerun()
+                    try:
+                        with db_conn() as conn:
+                            with conn.cursor() as cur:
+                                cur.execute("""INSERT INTO control_panels(panel_id,panel_name,shop,location,area,panel_type,inspection_cycle)
+                                    VALUES (%s,%s,%s,%s,%s,'Electrical Panel','Monthly')""",(new_id,new_name,shop,new_area,new_area))
+                        st.rerun()
+                    except Exception as exc: st.error(f'บันทึกไม่สำเร็จ: {exc}')
 elif page in ['Panel Profile','Inspection']:
     if not ids:st.warning('ยังไม่มีทะเบียนตู้ใน Shop นี้');st.stop()
     if st.session_state.panel_id not in ids:
@@ -285,13 +374,13 @@ elif page in ['Panel Profile','Inspection']:
         st.markdown('<div class="profile-table"><h3 style="margin:0 0 15px">Panel Information</h3>'+rows+'</div>',unsafe_allow_html=True)
         st.subheader('Responsible Team — ผู้รับผิดชอบประจำตู้')
         c1,c2=st.columns(2,gap='small')
-        with c1:st.markdown(person_card('White Shift',p.get('white'),p.get('white_photo'),'White'),unsafe_allow_html=True)
-        with c2:st.markdown(person_card('Yellow Shift',p.get('yellow'),p.get('yellow_photo'),'Yellow'),unsafe_allow_html=True)
+        with c1:st.markdown(person_card('White Shift',employee_label(p.get('white'),employees),employee_photo(p.get('white'),employees),'White'),unsafe_allow_html=True)
+        with c2:st.markdown(person_card('Yellow Shift',employee_label(p.get('yellow'),employees),employee_photo(p.get('yellow'),employees),'Yellow'),unsafe_allow_html=True)
         st.markdown('### Inspection & Maintenance')
         for label,key,photo_key,icon in [('ผู้ตรวจสอบล่าสุด','inspector','inspector_photo','☑'),('ผู้รับผิดชอบแก้ไข NG','repairer','repairer_photo','🔧'),('ผู้ตรวจยืนยันหลังแก้ไข','verifier','verifier_photo','✓')]:
-            person=p.get(key) or 'ยังไม่ระบุ'
+            person=employee_label(p.get(key),employees) or 'ยังไม่ระบุ'
             st.markdown(f'<div class="role"><span style="font-size:21px;margin-right:8px">{icon}</span><b>{label}</b><br><small>{html(person)}</small></div>',unsafe_allow_html=True)
-            if p.get(photo_key):st.image(p[photo_key],width=85)
+            if employee_photo(p.get(key),employees):st.image(employee_photo(p.get(key),employees),width=85)
         if st.button('☑  Start Inspection — 35 Items',type='primary',use_container_width=True):goto('Inspection',panel_id)
         a,b=st.columns(2)
         if a.button('◴  History',use_container_width=True):
@@ -313,19 +402,35 @@ elif page in ['Panel Profile','Inspection']:
             st.download_button('ดาวน์โหลด QR Code',qr_bytes(panel_id),file_name=panel_id+'.png',mime='image/png')
         with st.expander('✏️ Edit Panel Profile',expanded=False):
             with st.form('edit_profile'):
-                edit_fields=[('name','ชื่อเครื่องจักร'),('area','Zone'),('type','ประเภทตู้'),('cycle','รอบตรวจ'),('white','ผู้รับผิดชอบ White'),('yellow','ผู้รับผิดชอบ Yellow'),('inspector','ผู้ตรวจสอบ'),('repairer','ผู้แก้ไข'),('verifier','ผู้ตรวจยืนยันหลังแก้ไข')]
+                edit_fields=[('name','ชื่อเครื่องจักร'),('area','Zone'),('type','ประเภทตู้'),('cycle','รอบตรวจ')]
                 vals={k:st.text_input(label,value=p.get(k,'') or '') for k,label in edit_fields}
-                uploads={}
-                for key,label in [('photo','รูปตู้'),('white_photo','รูปผู้รับผิดชอบ White'),('yellow_photo','รูปผู้รับผิดชอบ Yellow'),('inspector_photo','รูปผู้ตรวจสอบ'),('repairer_photo','รูปผู้แก้ไข'),('verifier_photo','รูปผู้ตรวจยืนยัน')]:
-                    uploads[key]=st.file_uploader(label+' (บีบอัด WebP อัตโนมัติ: ภาพคมชัด ไฟล์เล็ก)',type=['jpg','jpeg','png','webp'],key='up_'+key)
+                vals['white']=employee_picker('ผู้รับผิดชอบ White',employees,p.get('white',''),key='edit_white',shop=shop,shift='White')
+                vals['yellow']=employee_picker('ผู้รับผิดชอบ Yellow',employees,p.get('yellow',''),key='edit_yellow',shop=shop,shift='Yellow')
+                vals['inspector']=employee_picker('ผู้ตรวจสอบ',employees,p.get('inspector',''),key='edit_inspector',shop=shop)
+                vals['repairer']=employee_picker('ผู้แก้ไข',employees,p.get('repairer',''),key='edit_repairer',shop=shop)
+                vals['verifier']=employee_picker('ผู้ตรวจยืนยันหลังแก้ไข',employees,p.get('verifier',''),key='edit_verifier',shop=shop)
+                panel_upload=st.file_uploader('รูปตู้ (อัปโหลดเมื่อมีการเปลี่ยนรูปเท่านั้น)',type=['jpg','jpeg','png','webp'],key='up_panel')
                 if st.form_submit_button('บันทึกข้อมูล',type='primary'):
-                    p.update(vals)
                     try:
-                        for key,upload in uploads.items():
-                            if upload:
-                                p[key]=compress_image(upload, max_dim=1400 if key=='photo' else 600, target_kb=250 if key=='photo' else 80)
-                        st.success('บันทึกใน Session แล้ว (ยังไม่ถาวร)');st.rerun()
-                    except Exception as exc:st.error(f'ไม่สามารถประมวลผลรูปภาพ: {exc}')
+                        if not vals['name'].strip():
+                            st.error('กรุณาระบุชื่อเครื่องจักร')
+                        else:
+                            photo=compress_image(panel_upload,max_dim=1400,target_kb=250) if panel_upload else None
+                            with db_conn() as conn:
+                                with conn.cursor() as cur:
+                                    cur.execute("""UPDATE control_panels SET
+                                        panel_name=%s,location=%s,area=%s,panel_type=%s,inspection_cycle=%s,
+                                        white_employee_id=%s,yellow_employee_id=%s,
+                                        inspector_employee_id=%s,repairer_employee_id=%s,verifier_employee_id=%s,
+                                        panel_photo_data=COALESCE(%s,panel_photo_data),updated_at=NOW()
+                                        WHERE panel_id=%s""",
+                                        (vals['name'],vals['area'],vals['area'],vals['type'],vals['cycle'],
+                                         vals['white'] or None,vals['yellow'] or None,vals['inspector'] or None,
+                                         vals['repairer'] or None,vals['verifier'] or None,
+                                         psycopg2.Binary(photo) if photo else None,panel_id))
+                            st.success('บันทึกโปรไฟล์ลง Neon Database แล้ว')
+                            st.rerun()
+                    except Exception as exc: st.error(f'บันทึกข้อมูลไม่สำเร็จ: {exc}')
         if st.button(f'▥  Dashboard — {shop}  →',type='primary',use_container_width=True):goto('Dashboard')
     else:
         st.header(f'✅ Checklist — {panel_id} (35 Items)')
@@ -333,7 +438,8 @@ elif page in ['Panel Profile','Inspection']:
         categories=[('A. Identification & LOTO',6),('B. Panel Protection',7),('C. Electrical Components & Wiring',10),('D. Preventive Maintenance',4),('E. Charging Equipment',2),('F. Breaker Inspection',3),('G. Safety & Housekeeping',3)]
         checklist_items=CHECKLIST_ITEMS
         with st.form('checklist'):
-            inspector=st.text_input('ชื่อผู้ตรวจสอบ')
+            inspector_id=employee_picker('ผู้ตรวจสอบ',employees,shop=shop,key='check_inspector')
+            inspector=employee_label(inspector_id,employees)
             answers={}
             n=0
             for category,count in categories:
@@ -348,7 +454,20 @@ elif page in ['Panel Profile','Inspection']:
                 elif any(v=='ยังไม่ตรวจ' for v in answers.values()):st.error('กรุณาตรวจให้ครบ 35 ข้อ')
                 elif 'NG' in answers.values() and not notes.strip():st.error('กรุณาระบุรายละเอียด NG')
                 else:
-                    st.session_state.inspections.append(dict(shop=shop,panel=panel_id,date=str(date.today()),inspector=inspector,OK=list(answers.values()).count('OK'),NG=list(answers.values()).count('NG'),NA=list(answers.values()).count('N/A'),notes=notes));st.success('บันทึกผลตรวจใน Session แล้ว')
+                    try:
+                        with db_conn() as conn:
+                            with conn.cursor() as cur:
+                                cur.execute("""INSERT INTO inspections(panel_id,inspector_name,inspection_date,overall_status,remarks)
+                                    VALUES (%s,%s,CURRENT_DATE,%s,%s) RETURNING id""",
+                                    (panel_id,inspector,'NG' if 'NG' in answers.values() else 'OK',notes))
+                                inspection_id=cur.fetchone()[0]
+                                for item_no,result in answers.items():
+                                    cur.execute("""INSERT INTO inspection_results(inspection_id,item_id,result,ng_detail)
+                                        SELECT %s,id,%s,%s FROM inspection_items WHERE item_no=%s""",
+                                        (inspection_id,result,notes if result=='NG' else None,item_no))
+                        st.success('บันทึกผลตรวจทั้ง 35 ข้อลง Neon แล้ว')
+                        st.rerun()
+                    except Exception as exc: st.error(f'บันทึกผลตรวจไม่สำเร็จ: {exc}')
 elif page=='NG Tracking':
     st.header(f'⚠️ NG Tracking — {shop}')
     records=[r for r in st.session_state.inspections if r['shop']==shop and r['NG']>0]
@@ -359,3 +478,56 @@ elif page=='NG Tracking':
                 st.write(f"วันที่ {record['date']} | ผู้ตรวจ: {record['inspector']}")
                 st.write(record.get('notes', ''))
     else:st.info('ยังไม่มีรายการ NG ที่บันทึก')
+
+elif page=='Employee Master':
+    st.header('👥 Employee Master — รายชื่อพนักงาน')
+    st.caption('จัดเก็บพนักงานครั้งเดียว ใช้รูปและข้อมูลร่วมกันทุกตู้ · รูป WebP ขนาดเล็กจัดเก็บใน Neon')
+    st.dataframe(pd.DataFrame([{k:e.get(k) for k in ('employee_id','full_name','shop','shift','position','phone','roles','is_active')} for e in employees]),use_container_width=True,hide_index=True)
+    with st.expander('➕ เพิ่ม / แก้ไขพนักงาน',expanded=True):
+        existing_ids=['']+[e['employee_id'] for e in employees]
+        existing=st.selectbox('เลือกพนักงานเพื่อแก้ไข (หรือเลือกเพิ่มใหม่)',existing_ids,
+            format_func=lambda v: ('➕ เพิ่มพนักงานใหม่' if not v else f'{v} · {employee_label(v,employees)}'))
+        employee=next((e for e in employees if e['employee_id']==existing),{})
+        with st.form('employee_form'):
+            eid=st.text_input('Employee ID',value=employee.get('employee_id',''),disabled=bool(existing))
+            name=st.text_input('ชื่อ-นามสกุล',value=employee.get('full_name',''))
+            sh=st.selectbox('Shop',['RSB','PTB'],index=1 if employee.get('shop')=='PTB' else 0)
+            shift_options=['White','Yellow','Day']
+            shift=st.selectbox('Shift',shift_options,index=shift_options.index(employee.get('shift')) if employee.get('shift') in shift_options else 0)
+            position=st.text_input('Position',value=employee.get('position',''))
+            phone=st.text_input('Phone',value=employee.get('phone',''))
+            roles=st.text_input('Roles เช่น Owner, Inspector, Repairer',value=employee.get('roles',''))
+            photo=st.file_uploader('รูปพนักงาน (อัปโหลดครั้งเดียว ใช้ซ้ำทุกตู้)',type=['jpg','jpeg','png','webp'])
+            if st.form_submit_button('บันทึก Employee Master',type='primary'):
+                if not eid.strip() or not name.strip(): st.error('กรุณาระบุ Employee ID และชื่อ-นามสกุล')
+                else:
+                    try:
+                        raw=compress_image(photo,max_dim=400,target_kb=60) if photo else None
+                        save_employee(eid.strip(),name.strip(),sh,shift,position,phone,roles,raw)
+                        st.success('บันทึก Employee Master ลง Neon แล้ว')
+                        st.rerun()
+                    except Exception as exc: st.error(f'บันทึกไม่สำเร็จ: {exc}')
+    with st.expander('📥 นำเข้ารายชื่อจาก Excel / CSV'):
+        st.caption('คอลัมน์: employee_id, full_name, shop, shift, position, phone, roles')
+        file=st.file_uploader('เลือก Excel หรือ CSV',type=['xlsx','csv'],key='employee_import')
+        if file:
+            try:
+                df=pd.read_excel(file,dtype=str).fillna('') if file.name.lower().endswith('.xlsx') else pd.read_csv(file,dtype=str).fillna('')
+                st.dataframe(df.head(10),hide_index=True)
+                required={'employee_id','full_name','shop'}
+                if not required.issubset(df.columns):st.error('ต้องมีคอลัมน์ employee_id, full_name, shop')
+                elif st.button('ยืนยันนำเข้ารายชื่อ'):
+                    count=0
+                    with db_conn() as conn:
+                        with conn.cursor() as cur:
+                            for _,r in df.iterrows():
+                                eid=str(r['employee_id']).strip(); name=str(r['full_name']).strip(); shop_name=str(r['shop']).strip().upper()
+                                if not eid or not name or shop_name not in ('RSB','PTB'): continue
+                                cur.execute("""INSERT INTO employees(employee_id,full_name,shop,shift,position,phone,roles)
+                                    VALUES (%s,%s,%s,%s,%s,%s,%s)
+                                    ON CONFLICT(employee_id) DO UPDATE SET full_name=EXCLUDED.full_name,shop=EXCLUDED.shop,
+                                    shift=EXCLUDED.shift,position=EXCLUDED.position,phone=EXCLUDED.phone,roles=EXCLUDED.roles,updated_at=NOW()""",
+                                    (eid,name,shop_name,str(r.get('shift','')),str(r.get('position','')),str(r.get('phone','')),str(r.get('roles',''))))
+                                count+=1
+                    st.success(f'นำเข้าสำเร็จ {count} รายชื่อ');st.rerun()
+            except Exception as exc:st.error(f'อ่านหรือนำเข้าไฟล์ไม่สำเร็จ: {exc}')
