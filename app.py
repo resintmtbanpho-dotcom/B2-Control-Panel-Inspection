@@ -273,7 +273,20 @@ if 'nav_page' not in st.session_state: st.session_state.nav_page=st.session_stat
 if 'pending_page' in st.session_state:
     st.session_state.nav_page = st.session_state.pop('pending_page')
 page=st.sidebar.radio('เมนู', menu,key='nav_page')
+# Keep a per-session navigation trail, including navigation from the sidebar.
+if 'navigation_history' not in st.session_state:
+    st.session_state.navigation_history = []
+previous_page = st.session_state.get('last_rendered_page')
+if previous_page and previous_page != page:
+    if st.session_state.pop('skip_navigation_history', False):
+        pass
+    else:
+        st.session_state.navigation_history.append({
+            'page': previous_page,
+            'panel_id': st.session_state.get('last_rendered_panel_id', st.session_state.panel_id),
+        })
 st.session_state.page=page
+st.session_state.last_rendered_page=page
 panels=[p for p in st.session_state.panels if p['shop']==shop]
 ids=[p['id'] for p in panels]
 
@@ -295,6 +308,18 @@ if st.sidebar.button('🔄 โหลดข้อมูลล่าสุด', us
     refresh_database_cache()
     st.rerun()
 st.caption(f'{shop} SHOP · Neon Database · Smart Cache')
+if page != 'Dashboard':
+    back_col, home_col = st.columns(2, gap='small')
+    if back_col.button('← Back', use_container_width=True, disabled=not st.session_state.navigation_history):
+        destination = st.session_state.navigation_history.pop()
+        st.session_state.panel_id = destination['panel_id']
+        st.session_state.skip_navigation_history = True
+        st.session_state.pending_page = destination['page']
+        st.rerun()
+    if home_col.button('🏠 Home', use_container_width=True):
+        goto('Dashboard')
+# Record the selected panel at the end of the run for accurate Back navigation.
+st.session_state.last_rendered_panel_id = st.session_state.panel_id
 if page=='Dashboard':
     accent='#204b50' if shop=='RSB' else '#a34c22'
     st.markdown(f'<div class="hero" style="background:{accent}"><span class="pill">{shop} ONLINE</span><div class="brand">B2 CONTROL PANEL INSPECTION</div><div class="subtitle">Dashboard — {shop} Shop</div></div>',unsafe_allow_html=True)
@@ -384,7 +409,9 @@ elif page in ['Panel Profile','Inspection']:
         st.warning('ไม่พบรหัสตู้นี้ในทะเบียนของ Shop ที่เลือก')
         st.stop()
     panel_id=st.selectbox('Panel ID',ids,index=ids.index(st.session_state.panel_id))
-    st.session_state.panel_id=panel_id;p=selected_panel()
+    st.session_state.panel_id=panel_id
+    st.session_state.last_rendered_panel_id=panel_id
+    p=selected_panel()
     if page=='Panel Profile':
         st.markdown(f'<div style="font-size:14px;font-weight:700;color:#17634e;margin-bottom:7px">B2 CONTROL PANEL &nbsp; • &nbsp; {shop} · Active</div><div style="color:#727b7c;margin-bottom:12px">Digital Safety Passport</div>',unsafe_allow_html=True)
         panel_photo = fetch_panel_photo(panel_id)
