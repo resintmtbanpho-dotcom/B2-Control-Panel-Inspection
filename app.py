@@ -115,39 +115,62 @@ def employee_picker(label, employees, current_id='', key=None, shop=None, shift=
                         format_func=lambda eid: (f"{eid} · {employee_label(eid,employees)}" if eid else '— เลือกพนักงาน —'),key=key)
 
 st.markdown("""<style>
-.stApp {background:#fbfcfc;color:#202628}
-.block-container {max-width:1120px;padding-top:1.3rem;padding-bottom:3rem}
-h1,h2,h3 {color:#1e292c!important}
-section[data-testid="stSidebar"] {background:#f3f6f6}
-div[data-testid="stVerticalBlockBorderWrapper"] {border-radius:22px}
-div.stButton>button {border-radius:24px;min-height:46px;font-weight:600}
-div.stButton>button[kind="primary"],div.stDownloadButton>button[kind="primary"] {background:#172c2f;border-color:#172c2f;color:white}
-div[data-testid="stMetric"] {background:#f1f2f2;padding:14px;border-radius:18px;border:0}
-.hero {background:#204b50;color:white;border-radius:21px;padding:23px 25px;margin:7px 0 20px}
-.hero .brand {font-size:clamp(16px,3.5vw,23px);font-weight:700;letter-spacing:.02em}
-.hero .subtitle {font-size:clamp(15px,3vw,21px);opacity:.9;margin-top:5px}
-.hero .pill {float:right;background:#2e6658;color:#a4f0bf;border-radius:30px;padding:7px 12px;font-size:13px;font-weight:700}
-.kpi {background:#f0f1f1;border-radius:20px;padding:18px;min-height:132px;margin-bottom:10px}
-.kpi .label {font-size:14px;color:#62696b;line-height:1.5}
-.kpi .num {font-size:39px;line-height:1.25;font-weight:750;color:#111;margin-top:11px}
-.sectionbox {background:#f1f2f2;border-radius:22px;padding:22px;margin:12px 0 20px}
-.sectionbox h3 {margin:0 0 14px;font-size:20px}
-.progress-bg {height:10px;background:#e6e8e8;border-radius:20px;overflow:hidden;margin:13px 0}
-.progress-fg {height:100%;background:#167d64;border-radius:20px}
-.statusbox {border:1px solid #d4d9d9;border-radius:16px;padding:13px;min-height:100px;background:#f4f4f4}
-.statuspill {display:inline-block;padding:4px 11px;border-radius:30px;font-weight:650;font-size:14px}
-.profile-title {font-size:31px;font-weight:800;color:#111;margin:13px 0 1px}
-.profile-sub {font-size:17px;color:#62696b;margin-bottom:16px}
-.photo-placeholder {background:#eef0f0;min-height:190px;border-radius:17px;display:flex;align-items:center;justify-content:center;color:#7a8385;text-align:center;padding:20px}
-.profile-table {background:#f1f2f2;padding:18px;border-radius:20px;margin:15px 0}
-.info-row {display:flex;justify-content:space-between;gap:12px;margin:11px 0;font-size:15px}
-.info-row span:first-child {color:#697072}.info-row span:last-child {font-weight:650;text-align:right;overflow-wrap:anywhere}
-.person {background:#f1f2f2;border-radius:21px;text-align:center;padding:16px 8px;min-height:210px}
-.person .avatar {height:76px;width:76px;border-radius:50%;background:#e2e5e5;display:flex;align-items:center;justify-content:center;font-size:31px;margin:10px auto}
-.person .name {font-weight:700;margin:9px 0 4px}.person .meta {font-size:12px;color:#6a7272;overflow-wrap:anywhere}
-.role {background:#f1f2f2;padding:14px 18px;border-radius:17px;margin:7px 0}
-.role small {color:#737b7c}
-@media(max-width:650px){.block-container {padding-left:13px;padding-right:13px;padding-top:1rem}.hero {padding:18px 16px}.hero .pill {font-size:11px;padding:5px 9px}.kpi {min-height:118px;padding:14px 12px}.kpi .num {font-size:33px}.kpi .label {font-size:12px}.sectionbox {padding:17px}.profile-title {font-size:27px}.person {min-height:185px;padding:13px 5px}}
+/* B2 Safety Pulse — Modern Industrial UI. Presentation only. */
+:root {--b2-ink:#183036;--b2-green:#0f554d;--b2-mint:#e9f5ef;--b2-line:#dce7e5;--b2-muted:#607478}
+.stApp {background:linear-gradient(180deg,#f0f7f5 0,#f8fafb 340px,#f8fafb 100%);color:var(--b2-ink)}
+.block-container {max-width:1180px;padding-top:1.5rem;padding-bottom:4rem}
+h1,h2,h3 {color:var(--b2-ink)!important;letter-spacing:-.025em}
+h1 {font-size:clamp(1.65rem,3vw,2.3rem)!important} h2 {font-size:clamp(1.4rem,2.5vw,1.85rem)!important}
+section[data-testid="stSidebar"] {background:linear-gradient(170deg,#102f34,#174d4b)!important;border-right:1px solid #315b58}
+section[data-testid="stSidebar"] * {color:#eef9f5}
+section[data-testid="stSidebar"] [data-testid="stCaptionContainer"] {opacity:.82}
+section[data-testid="stSidebar"] [data-testid="stRadio"] label {padding:5px 3px;border-radius:9px}
+section[data-testid="stSidebar"] [data-testid="stRadio"] label:hover {background:#ffffff14}
+section[data-testid="stSidebar"] button {background:#ffffff12!important;color:#fff!important;border:1px solid #ffffff50!important}
+section[data-testid="stSidebar"] button:hover {background:#ffffff25!important}
+[data-testid="stVerticalBlockBorderWrapper"] {border-radius:18px!important;border-color:var(--b2-line)!important;background:#fff}
+.stButton>button,.stDownloadButton>button,div[data-testid="stFormSubmitButton"] button {border-radius:12px!important;min-height:46px;font-weight:650;transition:background .15s ease,border-color .15s ease,transform .15s ease}
+.stButton>button:hover,.stDownloadButton>button:hover {border-color:#0c7664;transform:translateY(-1px)}
+.stButton>button[kind="primary"],.stDownloadButton>button[kind="primary"],div[data-testid="stFormSubmitButton"] button[kind="primary"] {background:#105c51!important;border-color:#105c51!important;color:white!important}
+.stButton>button[kind="primary"]:hover {background:#0b473f!important}
+[data-testid="stTextInput"] input,[data-testid="stTextArea"] textarea,[data-testid="stSelectbox"] [data-baseweb="select"]>div {border-radius:12px!important;border-color:#d7e4e1!important;background:#fff}
+[data-testid="stForm"] {background:#fff;border:1px solid var(--b2-line);border-radius:18px;padding:16px}
+[data-testid="stExpander"] {border:1px solid var(--b2-line);border-radius:14px!important;background:#fff;overflow:hidden}
+[data-testid="stDataFrame"] {border-radius:12px;overflow:hidden}
+.hero {background:linear-gradient(115deg,#123a3d,#17695b)!important;color:white;border-radius:22px;padding:29px 30px;margin:8px 0 23px;box-shadow:0 12px 26px #0e594c25;position:relative;overflow:hidden}
+.hero:after {content:"";position:absolute;width:230px;height:230px;border:1px solid #ffffff25;border-radius:50%;right:-85px;top:-115px;pointer-events:none}
+.hero .brand {font-size:clamp(17px,3.6vw,25px);font-weight:800;letter-spacing:.035em;color:#fff}
+.hero .subtitle {font-size:clamp(15px,3vw,21px);opacity:.9;margin-top:7px;color:#fff}
+.hero .pill {float:right;background:#dcfce9;color:#126448;border-radius:30px;padding:7px 13px;font-size:12px;font-weight:800}
+.kpi {background:#fff;border:1px solid #dfe9e6;border-radius:17px;padding:19px;min-height:131px;margin-bottom:12px;box-shadow:0 4px 16px #173d3410}
+.kpi .label {font-size:13px;color:#66797c;line-height:1.5;font-weight:600}
+.kpi .num {font-size:clamp(29px,4vw,40px);line-height:1.25;font-weight:800;color:#142b30;margin-top:11px;letter-spacing:-.03em}
+.sectionbox {background:#fff;border:1px solid var(--b2-line);border-radius:19px;padding:23px;margin:12px 0 20px;box-shadow:0 4px 16px #173d340b}
+.sectionbox h3 {margin:0 0 14px;font-size:19px}
+.progress-bg {height:11px;background:#e5efeb;border-radius:20px;overflow:hidden;margin:13px 0}
+.progress-fg {height:100%;background:linear-gradient(90deg,#168d74,#42ba91);border-radius:20px}
+.statusbox {border:1px solid #e1e9e7;border-radius:16px;padding:16px;min-height:105px;background:#fff;box-shadow:0 3px 13px #173d3409}
+.statuspill {display:inline-block;padding:5px 12px;border-radius:30px;font-weight:700;font-size:13px}
+.profile-title {font-size:clamp(26px,4vw,34px);font-weight:850;color:#143c3c;margin:15px 0 2px;letter-spacing:-.03em}
+.profile-sub {font-size:16px;color:#617477;margin-bottom:18px}
+.photo-placeholder {background:linear-gradient(135deg,#eaf3f0,#f4f8f7);min-height:195px;border:1px dashed #b9d2cb;border-radius:17px;display:flex;align-items:center;justify-content:center;color:#69827e;text-align:center;padding:20px}
+.profile-table {background:#fff;border:1px solid var(--b2-line);padding:20px;border-radius:18px;margin:15px 0;box-shadow:0 3px 15px #173d340b}
+.info-row {display:flex;justify-content:space-between;gap:12px;margin:12px 0;font-size:14px;border-bottom:1px solid #edf2f0;padding-bottom:9px}
+.info-row:last-child {border:0;padding-bottom:0}
+.info-row span:first-child {color:#6c7f80}.info-row span:last-child {font-weight:700;color:#1c383c;text-align:right;overflow-wrap:anywhere}
+.person {background:#fff;border:1px solid var(--b2-line);border-radius:19px;text-align:center;padding:19px 9px;min-height:218px;box-shadow:0 3px 15px #173d340c}
+.person .avatar {height:76px;width:76px;border-radius:50%;background:#e4f2ed;display:flex;align-items:center;justify-content:center;font-size:31px;margin:12px auto;border:3px solid #f1f8f5}
+.person .name {font-weight:800;margin:10px 0 5px;color:#18363b}.person .meta {font-size:12px;color:#6a7d7d;overflow-wrap:anywhere}
+.role {background:#fff;border:1px solid var(--b2-line);padding:15px 19px;border-radius:15px;margin:9px 0;box-shadow:0 2px 12px #173d3408}
+.role small {color:#687e7e}
+@media(max-width:650px){
+.block-container {padding-left:13px;padding-right:13px;padding-top:.9rem}
+.hero {padding:21px 17px;border-radius:17px;margin-bottom:16px}.hero .pill {font-size:10px;padding:5px 9px}
+.kpi {min-height:113px;padding:14px 12px;border-radius:14px}.kpi .num {font-size:30px}.kpi .label {font-size:11px}
+.sectionbox {padding:17px;border-radius:15px}.profile-title {font-size:27px}.person {min-height:190px;padding:13px 5px}
+.profile-table {padding:14px}.info-row {font-size:13px}
+.stButton>button,.stDownloadButton>button {min-height:48px}
+}
 </style>""",unsafe_allow_html=True)
 
 def html(value):
