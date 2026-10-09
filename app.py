@@ -480,9 +480,9 @@ if page=='Dashboard':
 elif page=='Factory Map':
     st.header(f'🗺️ Factory Map — {shop}')
     st.caption('แตะหมุดเพื่อดูข้อมูลตู้ หรือเลือกตู้และแตะตำแหน่งใหม่เพื่อปัก/ย้ายหมุด · บันทึกลง Neon อัตโนมัติเมื่อกดยืนยัน')
-    map_path=Path(__file__).resolve().parent / 'assets' / 'RSB_Control_Panel_Map.png'
+    map_path=Path(__file__).resolve().parent / 'RSB_Control_Panel_Map.png'
     if not map_path.exists():
-        st.error('ไม่พบไฟล์แผนผัง assets/RSB_Control_Panel_Map.png ใน GitHub')
+        st.error('ไม่พบไฟล์แผนผัง RSB_Control_Panel_Map.png ใน GitHub')
     elif shop != 'RSB':
         st.info('แผนผังที่อัปโหลดเป็นของ RSB เท่านั้น · สามารถเพิ่มแผนผัง PTB แยกต่างหากได้')
     else:
