@@ -276,7 +276,7 @@ elif page in ['Panel Profile','Inspection']:
         if st.session_state.get('show_qr'):
             if not st.secrets.get('APP_BASE_URL', ''): st.warning('ก่อนพิมพ์ QR ต้องตั้งค่า APP_BASE_URL ใน Streamlit Secrets ให้เป็น URL เว็บจริง')
             st.image(qr_bytes(panel_id),width=180,caption='QR Code Scan สำหรับ ตรวจสอบตู้ไฟคอนโทรล')
-            st.download_button('ดาวน์โหลด QR (ทดสอบ)',qr_bytes(panel_id),file_name=panel_id+'.png',mime='image/png')
+            st.download_button('ดาวน์โหลด QR Code',qr_bytes(panel_id),file_name=panel_id+'.png',mime='image/png')
         with st.expander('✏️ Edit Panel Profile',expanded=False):
             with st.form('edit_profile'):
                 edit_fields=[('name','ชื่อเครื่องจักร'),('area','Zone'),('type','ประเภทตู้'),('cycle','รอบตรวจ'),('white','ผู้รับผิดชอบ White'),('yellow','ผู้รับผิดชอบ Yellow'),('inspector','ผู้ตรวจสอบ'),('repairer','ผู้แก้ไข'),('verifier','ผู้ตรวจยืนยันหลังแก้ไข')]
