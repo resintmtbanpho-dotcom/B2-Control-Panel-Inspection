@@ -1,5 +1,5 @@
 import streamlit as st
-from datetime import date
+from datetime import date, timedelta
 from PIL import Image, ImageOps, ImageDraw, ImageFont
 from io import BytesIO
 import qrcode
@@ -7,6 +7,8 @@ import base64
 from html import escape
 from datetime import datetime
 from pathlib import Path
+from calendar import monthrange
+from uuid import uuid4
 
 st.set_page_config(page_title='B2 Control Panel Inspection', page_icon='⚡', layout='wide') 
 import psycopg2
@@ -49,18 +51,28 @@ def initialize_database():
                     name='Injection 2500T' if i==1 else f'Control Panel {i:03d}'
                     cur.execute("""INSERT INTO control_panels
                         (panel_id,panel_name,shop,location,area,panel_type,inspection_cycle)
-                        VALUES (%s,%s,'RSB',%s,%s,'Electrical Panel','Monthly')
+                        VALUES (%s,%s,'RSB',%s,%s,'Electrical Panel','6 Months')
                         ON CONFLICT (panel_id) DO NOTHING""",(f'CP-RSB-{i:03d}',name,area,area))
-            categories=[('A. Identification & LOTO',6),('B. Panel Protection',7),
-                        ('C. Electrical Components & Wiring',10),('D. Preventive Maintenance',4),
-                        ('E. Charging Equipment',2),('F. Breaker Inspection',3),
-                        ('G. Safety & Housekeeping',3)]
-            idx=0
-            for cat,n in categories:
-                for _ in range(n):
-                    idx+=1
-                    cur.execute("""INSERT INTO inspection_items(item_no,category,description)
-                        VALUES (%s,%s,%s) ON CONFLICT (item_no) DO NOTHING""",(idx,cat,CHECKLIST_ITEMS[idx-1]))
+            # Keep old inspection_results references; never delete historical rows.
+            cur.execute("ALTER TABLE inspection_items ADD COLUMN IF NOT EXISTS inspection_type TEXT DEFAULT 'Maintain'")
+            cur.execute("ALTER TABLE inspections ADD COLUMN IF NOT EXISTS inspection_type TEXT")
+            cur.execute("ALTER TABLE inspections ADD COLUMN IF NOT EXISTS setup_event TEXT")
+            cur.execute("ALTER TABLE inspections ADD COLUMN IF NOT EXISTS setup_event_date DATE")
+            cur.execute("ALTER TABLE control_panels ADD COLUMN IF NOT EXISTS setup_event TEXT")
+            cur.execute("ALTER TABLE control_panels ADD COLUMN IF NOT EXISTS setup_event_date DATE")
+            cur.execute("ALTER TABLE control_panels ADD COLUMN IF NOT EXISTS setup_event_id TEXT")
+            cur.execute("ALTER TABLE inspections ADD COLUMN IF NOT EXISTS setup_event_id TEXT")
+            # Old inspections remain historical/legacy, not automatically assigned to 2027 cycles.
+            for idx, description in enumerate(CHECKLIST_ITEMS, start=1):
+                typ = 'Set up' if idx in SETUP_ITEM_NUMBERS else 'Maintain'
+                cur.execute("""INSERT INTO inspection_items(item_no,category,description,is_active,inspection_type)
+                    VALUES (%s,%s,%s,TRUE,%s)
+                    ON CONFLICT (item_no) DO UPDATE SET
+                    category=EXCLUDED.category, description=EXCLUDED.description,
+                    is_active=TRUE, inspection_type=EXCLUDED.inspection_type""",
+                    (idx, typ, description, typ))
+            cur.execute("UPDATE inspection_items SET is_active=FALSE WHERE item_no>24")
+
 
 @st.cache_data(ttl=180, show_spinner=False)
 def query_all(sql, params=()):
@@ -293,60 +305,31 @@ def maintenance_card(title, employee, photo, icon):
 def kpi_card(label,value,color='#111',icon='▦'):
     return f'<div class="kpi" style="--kpi-accent:{color}"><div class="label">{icon} &nbsp; {label}</div><div class="num" style="color:{color}">{value}</div></div>'
 
-CHECKLIST_ITEMS = ['มีจุด Lockout และป้ายระบุที่ Main Breaker ชัดเจน',
- 'มีป้ายชื่อ Control Panel แสดงชัดเจน',
- 'มีป้ายระบุแรงดันไฟฟ้าภายนอกและภายในตู้ ณ จุดต่อสาย เช่น 380V / 220V / 24V',
- 'มีป้ายระบุหน่วยงานผู้รับผิดชอบ ชื่อผู้รับผิดชอบ และเบอร์โทรศัพท์',
- 'มีป้ายเตือนอันตรายจากไฟฟ้าแรงสูง/แรงต่ำตามความเสี่ยง',
- 'มีแผนผังแสดงขอบเขตการตัดแยกพลังงานไฟฟ้า (Power Isolation)',
- 'พัดลมระบายอากาศทำงานได้ และมีตัวแสดงสถานะการทำงาน (ถ้ามี)',
- 'ส่วนที่มีกระแสไฟฟ้าและอาจสัมผัสได้ มีฝาครอบหรือแผ่น Polycarbonate ป้องกัน',
- 'ประตูตู้ควบคุมไฟฟ้ารองล็อกแน่นหนา ไม่สามารถถอดหรือเปิดด้วยมือได้ง่าย',
- 'Sub Breaker มีป้ายระบุอุปกรณ์ที่ควบคุมอย่างชัดเจน เมื่อควบคุมหลายอุปกรณ์',
- 'ไม่มีช่องว่างให้น้ำ น้ำมัน Coolant ฝุ่น หรือสัตว์เข้าไปในตู้',
- 'ช่องเดินสายไฟไม่มีขอบคม และมีอุปกรณ์ป้องกันสายไฟอย่างเหมาะสม',
- 'ช่องระบายอากาศไม่มีช่องว่างผิดปกติที่ทำให้สิ่งแปลกปลอมเข้าตู้',
- 'อุปกรณ์ไฟฟ้าและสายไฟเป็นไปตามมาตรฐานที่กำหนด เช่น มอก. / CE / UL / RU',
- 'ตู้ที่ใช้งานในพื้นที่เปียกหรือกลางแจ้งติดตั้ง ELCB ตามข้อกำหนด',
- 'สายไฟ Main Power ต่อเข้าที่ Main Breaker โดยตรง',
- 'ไม่มีการต่อแยกสายไฟออกจากขั้ว Main Breaker โดยไม่เหมาะสม',
- 'สายไฟ สายดิน และอุปกรณ์อยู่ในสภาพสมบูรณ์ ไม่มีรอยไหม้ เขม่า หรือสีผิดปกติ',
- 'การเข้าหางปลาสายไฟไม่ซ้อนเกิน 2 หางปลา จุดต่อแน่น และมี Mark Bolt',
- 'การต่อสายดินเป็นแบบ 1:1 ตามข้อกำหนด',
- 'ประตูตู้ที่ติดตั้งอุปกรณ์ไฟฟ้ามีสายดินสีเขียวหรือเขียว-เหลืองเชื่อมต่อ',
- 'ขนาดสายไฟและพิกัด Breaker เหมาะสมกับกระแสใช้งาน',
- 'จัดเก็บสายไฟในรางเรียบร้อย ไม่ม้วน พับ บีบ หรือถูกกดทับ',
- 'มีการตรวจสอบตู้ตามแผน Preventive Maintenance (PM)',
- 'อุปกรณ์ไฟฟ้าที่ต้องต่อสายดินใช้ปลั๊กและเต้ารับชนิด 3 ขา',
- 'จุดต่อสายไฟอยู่ภายใน Junction Box หรือ Terminal ที่เหมาะสมเท่านั้น',
- 'มีการทดสอบค่าความต้านทานฉนวนของ Busduct ตามข้อกำหนด',
- 'ตู้ชาร์จรถไฟฟ้ามีการตรวจสอบตามข้อกำหนด',
- 'ตู้ชาร์จรถ Forklift แบตเตอรี่ Lithium มีการตรวจสอบตามข้อกำหนด',
- 'มีการตรวจสอบ Breaker ก่อนเริ่มใช้งาน',
- 'มีการตรวจสอบ Breaker ตามรอบระยะเวลาที่กำหนด',
- 'มีการตรวจสอบ Breaker หลังเกิด Trip ก่อนกลับมาใช้งาน',
- 'มีถังดับเพลิงในห้อง Substation หรือห้องไฟฟ้าตามข้อกำหนด',
- 'ตู้ Control Panel ทุกตู้มีสายดินหลัก (Main Ground)',
- 'ไม่มีวัสดุติดไฟหรือสิ่งของไม่จำเป็นภายในตู้ เช่น กระดาษ หรือวัสดุพันสายที่ไม่เหมาะสม']
+CHECKLIST_ITEMS = ['ตู้ไฟต้องมีจุดคล้องเกี่ยว Lock out และมีป้าย Lockout point ติดอยู่', 'มีชื่อตู้ไฟระบุไว้อย่างชัดเจน', 'มีป้ายแสดงขนาดแรงดันไฟ ทั้งนอกตู้และภายในตู้ ที่อุปกรณ์ไฟฟ้าและ Terminal', 'มีป้ายชื่อผู้รับผิดชอบ (ชื่อแผนก ชื่อคนรับผิดชอบ เบอร์โทร) ที่ตู้ไฟ โดยระบุอย่างชัดเจน', 'ติดป้ายเตือนอันตรายจากไฟฟ้าทั้ง 2 แบบ (แบบสามเหลี่ยม และแบบสี่เหลี่ยม)', 'มี Layout / Diagram แสดงขอบเขตการตัดกระแสไฟฟ้า และป้ายระบุแหล่งที่มาของ Main ไฟฟ้า', 'หากตู้ไฟมีพัดลมระบายอากาศ พัดลมต้องสามารถใช้งานได้ และมีริ้วแสดงสถานะการทำงาน', 'ส่วนเปลือยที่มีกระแสไฟ (Live part) แรงดันมากกว่า 24 V ต้องปิดด้วย Polycarbonate ป้องกันการสัมผัส (ตั้งแต่ 600 V ติดป้ายห้ามเปิดฝาครอบขณะยังไม่ได้ตัดพลังงาน)', 'ประตูตู้ Control ชั้นที่ 2 ต้องปิดและล็อก ถอดออกได้ยาก และติดป้ายอันตรายให้ปิด Main Breaker ก่อนเปิดฝาตู้ชั้นที่ 2', 'อุปกรณ์ไฟฟ้าต้องมีป้ายชื่อระบุอุปกรณ์ที่ควบคุมในแต่ละ Breaker ให้ตรงกับอุปกรณ์หน้างานจริง', 'ตู้ไฟต้องไม่มีรูช่องว่าง ต้องปิดสนิทเพื่อป้องกันน้ำ น้ำมัน ฝุ่น สัตว์ มด หรือแมลงเข้าไปภายในตู้', 'รูร้อยสายไฟต้องไม่มีขอบคม ปิดด้วยวัสดุป้องกันที่สภาพดี แข็งแรง ไม่แห้งแตกร้าว หลุดยาก และทนไฟ', 'สายไฟ สายเคเบิล และสายดินต้องอยู่ในสภาพดี ไม่ชำรุดหรือเห็นสายเปลือย อุปกรณ์ไม่มีเขม่าควันหรือฉนวนเปลี่ยนสี', 'สายไฟ / สายสัญญาณ จุดต่อหางปลาต้องไม่ซ้อนหรือพ่วงเกิน 2 เส้น และจุดต่อวงจรไม่หลวม (Mark bolt ไม่เคลื่อน)', 'สายดินต้องต่อแบบ 1:1 ห้ามพ่วงหรือซ้อน ยกเว้นกรณี Drawing และ Manual กำหนดให้ต่อร่วมกัน', 'อุปกรณ์ในตู้และฝาตู้ Control ต้องต่อสายดินสีเขียวหรือเขียว-เหลือง (ยกเว้นฝาตู้ที่ไม่มีอุปกรณ์ไฟฟ้า และข้อยกเว้นการทำเครื่องหมายสายกราวด์ตู้เก่า)', 'การเดินสายไฟต้องจัดเก็บในรางให้เรียบร้อย ไม่โดนทับหรือถูกหนีบ และมีมาตรการป้องกันการเหยียบหรือโดนทับ', 'มีการตรวจสอบตู้ไฟตาม PM Plan ของแต่ละพื้นที่', 'การต่อแยกสายไฟต้องแน่นไม่หลวม เพื่อป้องกันไฟฟ้าลัดวงจร เช่น Terminal', 'ตู้ Control ต้องมีสาย Main ground', 'ภายในตู้ต้องไม่มีวัสดุติดไฟง่าย (เช่น ไส้ไก่ กระดาษ) หรือสิ่งของที่ไม่จำเป็นต้องอยู่ในตู้', 'Thermoscan อุณหภูมิ Terminal และสายไฟ ไม่เกิน 60°C', 'Tightening Terminal', 'ตู้ประเภท Outdoor ต้องมี Seal กันน้ำ มีหลังคากันฝน และมี Spec ระบุว่าสามารถกันน้ำได้']
+SETUP_ITEM_NUMBERS = (20, 24)
+MAINTAIN_ITEM_NUMBERS = tuple(n for n in range(1, 25) if n not in SETUP_ITEM_NUMBERS)
 
 try:
     initialize_database()
     employees=query_all('SELECT employee_id,full_name,shop,shift,position,phone,roles,is_active FROM employees ORDER BY shop,full_name')
     panel_rows=query_all('''SELECT panel_id,panel_name,shop,location,area,zone,panel_type,inspection_cycle,
         white_employee_id,yellow_employee_id,inspector_employee_id,repairer_employee_id,
-        verifier_employee_id,map_x,map_y FROM control_panels WHERE is_active = TRUE ORDER BY panel_id''')
+        verifier_employee_id,map_x,map_y,setup_event,setup_event_date,setup_event_id FROM control_panels WHERE is_active = TRUE ORDER BY panel_id''')
     st.session_state.panels=[dict(
         id=r['panel_id'],shop=r['shop'],area=r.get('area') or r.get('location') or '',
         zone=r.get('zone') or '',
         name=r['panel_name'],type=r.get('panel_type') or 'Electrical Panel',
-        cycle=r.get('inspection_cycle') or 'Monthly',
+        cycle=r.get('inspection_cycle') or '6 Months',
         white=r.get('white_employee_id') or '',yellow=r.get('yellow_employee_id') or '',
         inspector=r.get('inspector_employee_id') or '',repairer=r.get('repairer_employee_id') or '',
         verifier=r.get('verifier_employee_id') or '',
         map_x=r.get('map_x'),map_y=r.get('map_y'),
+        setup_event=r.get('setup_event'),setup_event_date=r.get('setup_event_date'),
+        setup_event_id=r.get('setup_event_id'),
         photo=None)
         for r in panel_rows]
     result_rows=query_all("""SELECT i.id,i.panel_id,i.inspector_name,i.inspection_date,i.remarks,
+        i.inspection_type,i.setup_event,i.setup_event_date,i.setup_event_id,
         p.shop,COUNT(*) FILTER (WHERE r.result='OK') AS ok,
         COUNT(*) FILTER (WHERE r.result='NG') AS ng,
         COUNT(*) FILTER (WHERE r.result='N/A') AS na
@@ -354,7 +337,9 @@ try:
         LEFT JOIN inspection_results r ON r.inspection_id=i.id
         GROUP BY i.id,p.shop ORDER BY i.inspection_date,i.id""")
     st.session_state.inspections=[dict(shop=r['shop'],panel=r['panel_id'],date=str(r['inspection_date']),
-        inspector=r['inspector_name'],OK=r['ok'],NG=r['ng'],NA=r['na'],notes=r['remarks'] or '') for r in result_rows]
+        inspector=r['inspector_name'],OK=r['ok'],NG=r['ng'],NA=r['na'],
+        inspection_type=r.get('inspection_type') or 'Legacy',setup_event=r.get('setup_event'),
+        setup_event_date=r.get('setup_event_date'),setup_event_id=r.get('setup_event_id'),notes=r['remarks'] or '') for r in result_rows]
 except Exception as exc:
     st.error('ไม่สามารถโหลดข้อมูลจาก Neon ได้ กรุณาตรวจสอบ DATABASE_URL และสิทธิ์ของฐานข้อมูล')
     st.exception(exc)
@@ -420,11 +405,39 @@ def map_file_for(shop_name):
     return None
 
 
+def add_six_months(value):
+    month_index = value.year * 12 + (value.month - 1) + 6
+    year, month0 = divmod(month_index, 12)
+    month = month0 + 1
+    return date(year, month, min(value.day, monthrange(year, month)[1]))
+
+
+def panel_cycle_status(panel, all_inspections, as_of=None):
+    as_of = as_of or date.today()
+    maintain = [r for r in all_inspections if r['panel'] == panel['id'] and r.get('inspection_type') == 'Maintain']
+    latest_maintain = max(maintain, key=lambda r: (r['date'], r.get('id', 0))) if maintain else None
+    if latest_maintain:
+        last_date = date.fromisoformat(latest_maintain['date'])
+        due = add_six_months(last_date)
+        maintain_status = 'NG' if latest_maintain['NG'] else ('Overdue' if as_of > due else 'OK')
+    else:
+        due = None
+        maintain_status = 'Pending'
+    setup_date = panel.get('setup_event_date')
+    setup_date = date.fromisoformat(str(setup_date)) if setup_date else None
+    setup_records = [r for r in all_inspections if r['panel'] == panel['id'] and r.get('inspection_type') == 'Set up']
+    valid = [r for r in setup_records if setup_date and date.fromisoformat(r['date']) >= setup_date
+             and r.get('setup_event_id') and r.get('setup_event_id') == panel.get('setup_event_id')]
+    latest_setup = max(valid, key=lambda r: (r['date'], r.get('id', 0))) if valid else None
+    setup_status = ('NG' if latest_setup['NG'] else 'OK') if latest_setup else ('Pending' if setup_date else 'Not Required')
+    return maintain_status, due, setup_status
+
+
 def inspection_map_status(panel_id, latest_results):
     item = latest_results.get(panel_id)
     if not item:
         return "Not Inspected"
-    return "NG" if item["NG"] else "OK"
+    return item.get('map_status', 'Not Inspected')
 
 
 def render_panel_map(shop_name, shop_panels, latest_results, editable=False):
@@ -447,7 +460,7 @@ def render_panel_map(shop_name, shop_panels, latest_results, editable=False):
     except OSError:
         font = ImageFont.load_default()
     pins = []
-    palette = {"OK": "#009b69", "NG": "#e33748", "Not Inspected": "#8b949e"}
+    palette = {"OK": "#009b69", "NG": "#e33748", "Overdue": "#e6a100", "Not Inspected": "#8b949e"}
     for panel in shop_panels:
         x, y = panel.get("map_x"), panel.get("map_y")
         if x is None or y is None or not (0 <= x <= 1 and 0 <= y <= 1):
@@ -462,7 +475,7 @@ def render_panel_map(shop_name, shop_panels, latest_results, editable=False):
         bbox = draw.textbbox((0,0),label,font=font)
         draw.text((px-(bbox[2]-bbox[0])/2,py-(bbox[3]-bbox[1])/2-bbox[1]),label,font=font,fill="white")
         pins.append((panel,px,py,radius))
-    st.caption("🟢 OK　 🔴 NG　 ⚪ ยังไม่ตรวจในเดือนที่เลือก | แตะหมุดเพื่อดูรายละเอียด")
+    st.caption("🟢 Maintain OK　 🔴 Maintain NG　 🟡 เกินกำหนด　 ⚪ รอตรวจ | แตะหมุดเพื่อดูรายละเอียด")
     if editable:
         st.caption("โหมดแก้ไข: เลือก Panel ID แล้วแตะตำแหน่งใหม่บนแผนที่ จากนั้นกดบันทึก")
         options = [p["id"] for p in shop_panels]
@@ -539,34 +552,39 @@ st.session_state.last_rendered_panel_id = st.session_state.panel_id
 if page=='Dashboard':
     accent='#204b50' if shop=='RSB' else '#a34c22'
     st.markdown(f'<div class="hero" style="background:{accent}"><span class="pill">{shop} ONLINE</span><div style="font-size:12px;color:#8be0d5;margin-bottom:7px">TOYOTA BANPHO · {shop} SHOP</div><div class="brand">B2 Control Panel Inspection</div><div class="subtitle">Electrical &amp; Machine Control Panel · Dashboard</div></div>',unsafe_allow_html=True)
-    mcol,scol=st.columns(2)
-    with mcol: month=st.selectbox('Month',list(range(1,13)),index=date.today().month-1,format_func=lambda m:['มกราคม','กุมภาพันธ์','มีนาคม','เมษายน','พฤษภาคม','มิถุนายน','กรกฎาคม','สิงหาคม','กันยายน','ตุลาคม','พฤศจิกายน','ธันวาคม'][m-1])
-    with scol: status=st.selectbox('Status',['ทุกสถานะ','OK','NG','Pending','Overdue'])
-    records=[r for r in st.session_state.inspections if r['shop']==shop and int(r['date'][5:7])==month and r['date'][:4]==str(date.today().year)]
-    latest={}
-    for r in records:latest[r['panel']]=r
-    inspected=len(latest)
-    ok=sum(r['NG']==0 for r in latest.values())
-    ng=sum(r['NG']>0 for r in latest.values())
-    pending=max(0,len(panels)-inspected)
-    has_records=bool(records)
-    values=[('Panels ทั้งหมด',len(panels),'#1975cb','▦'),('ตรวจสอบแล้ว',inspected if has_records else '—','#00977c','☑'),('ผล OK',ok if has_records else '—','#00977c','✓'),('ผล NG',ng if has_records else '—','#ed3047','⚠'),('รอตรวจสอบ',pending if has_records else '—','#d9a100','◷'),('เกินกำหนด','—','#ed3047','▣')]
+    st.caption('Maintain ตรวจทุก 6 เดือน • Set up ตรวจเมื่อมีการติดตั้งใหม่หรือ Modify')
+    cycle_states = {p['id']: panel_cycle_status(p, st.session_state.inspections) for p in panels}
+    latest = {pid: {'map_status': ('NG' if ms == 'NG' else 'Overdue' if ms == 'Overdue' else 'OK' if ms == 'OK' else 'Not Inspected')}
+              for pid, (ms, due, ss) in cycle_states.items()}
+    inspected = sum(ms in ('OK','NG','Overdue') for ms,due,ss in cycle_states.values())
+    ok = sum(ms == 'OK' for ms,due,ss in cycle_states.values())
+    ng = sum(ms == 'NG' for ms,due,ss in cycle_states.values())
+    pending = sum(ms == 'Pending' for ms,due,ss in cycle_states.values())
+    overdue = sum(ms == 'Overdue' for ms,due,ss in cycle_states.values())
+    has_records = True
+    values=[('Panels ทั้งหมด',len(panels),'#1975cb','▦'),('Maintain ตรวจแล้ว',inspected,'#00977c','☑'),
+            ('Maintain OK',ok,'#00977c','✓'),('Maintain NG',ng,'#ed3047','⚠'),
+            ('รอตรวจ Maintain',pending,'#d9a100','◷'),('Maintain เกินกำหนด',overdue,'#ed3047','▣')]
     for i in range(0,6,2):
         cols=st.columns(2,gap='small')
         for col,(label,value,color,icon) in zip(cols,values[i:i+2]):
             with col:st.markdown(kpi_card(label,value,color,icon),unsafe_allow_html=True)
     completion=(inspected/len(panels)*100) if panels else 0
-    st.markdown(f'<div class="sectionbox"><h3>Inspection Completion</h3><div style="display:flex;justify-content:space-between;gap:12px"><span style="color:#646b6c">ตรวจครบตามรอบ / จำนวนตู้ที่ต้องตรวจ</span><b>{f"{completion:.1f}%" if has_records else "—%"}</b></div><div class="progress-bg"><div class="progress-fg" style="width:{completion:.1f}%"></div></div><div style="color:#697273;font-size:13px">คำนวณจากผลตรวจของ {shop} ในเดือนที่เลือก</div></div>',unsafe_allow_html=True)
+    st.markdown(f'<div class="sectionbox"><h3>Inspection Completion</h3><div style="display:flex;justify-content:space-between;gap:12px"><span style="color:#646b6c">ตรวจครบตามรอบ / จำนวนตู้ที่ต้องตรวจ</span><b>{f"{completion:.1f}%" if has_records else "—%"}</b></div><div class="progress-bg"><div class="progress-fg" style="width:{completion:.1f}%"></div></div><div style="color:#697273;font-size:13px">คำนวณจากผล Maintain ล่าสุดของ {shop} (รอบ 6 เดือน)</div></div>',unsafe_allow_html=True)
+    setup_counts = {state: sum(ss == state for ms,due,ss in cycle_states.values())
+                    for state in ('OK','NG','Pending','Not Required')}
+    st.subheader('Set up — ตรวจเมื่อมีการติดตั้งใหม่ / Modify')
+    st.write(f"🟢 OK {setup_counts['OK']}　🔴 NG {setup_counts['NG']}　🟡 รอตรวจ {setup_counts['Pending']}　⚪ ยังไม่มีเหตุการณ์ {setup_counts['Not Required']}")
     st.subheader('🗺️ Live Panel Status Map — '+shop)
     render_panel_map(shop, panels, latest, editable=False)
     if has_records:
         by_area={}
         for p in panels:
             r=latest.get(p['id'])
-            if not r:continue
+            if not r or r['map_status'] not in ('OK','NG'):continue
             area=p['area']
             if area not in by_area:by_area[area]={'OK':0,'NG':0}
-            by_area[area]['NG' if r['NG'] else 'OK']+=1
+            by_area[area][r['map_status']]+=1
         with st.container(border=True):
             st.subheader('Inspection by Area')
             for area in sorted(by_area,key=lambda z:(int(z[1:]) if z[1:].isdigit() else 9999,z)):
@@ -574,7 +592,7 @@ if page=='Dashboard':
                 st.progress((counts['OK']+counts['NG'])/max(1,sum(p['area']==area for p in panels)))
     else:
         st.markdown('<div class="sectionbox"><h3>Inspection by Area <span style="float:right;font-size:13px;color:#6d7676">'+shop+'</span></h3><div style="text-align:center;color:#777;padding:33px 4px">▥<br>กราฟ OK / NG / Pending ตามพื้นที่ L1–L11<br><small>รอข้อมูลผลตรวจจริง</small></div></div>',unsafe_allow_html=True)
-    ng_records=[r for r in records if r['NG']>0]
+    ng_records=[r for r in st.session_state.inspections if r['shop']==shop and r['NG']>0]
     st.markdown('<div class="sectionbox"><h3>NG Tracking — '+shop+'</h3></div>',unsafe_allow_html=True)
     statuses=[('New','#a3322b','#f4dbd9'),('On Process','#90461c','#f3ded2'),('Delay','#6a3cb4','#e8def7'),('Complete','#2d7d44','#d8ecdf')]
     for i in (0,2):
@@ -592,8 +610,8 @@ if page=='Dashboard':
 elif page=='Factory Map':
     st.header(f'🗺️ Factory Map — {shop}')
     st.caption('แผนผังตู้ Control Panel • เพิ่ม ย้าย หรือลบหมุด และบันทึกพิกัดลง Neon')
-    shop_records=[r for r in st.session_state.inspections if r['shop']==shop and r['date'][:7]==date.today().strftime('%Y-%m')]
-    latest_map={r['panel']:r for r in shop_records}
+    latest_map={p['id']:{'map_status': ('NG' if ms=='NG' else 'Overdue' if ms=='Overdue' else 'OK' if ms=='OK' else 'Not Inspected')}
+                for p in panels for ms,due,ss in [panel_cycle_status(p,st.session_state.inspections)]}
     render_panel_map(shop, panels, latest_map, editable=True)
 elif page=='Panel List':
     st.header(f'📋 Panel List — {shop}')
@@ -615,7 +633,7 @@ elif page=='Panel List':
                         with db_conn() as conn:
                             with conn.cursor() as cur:
                                 cur.execute("""INSERT INTO control_panels(panel_id,panel_name,shop,location,area,panel_type,inspection_cycle)
-                                    VALUES (%s,%s,%s,%s,%s,'Electrical Panel','Monthly')""",(new_id,new_name,shop,new_area,new_area))
+                                    VALUES (%s,%s,%s,%s,%s,'Electrical Panel','6 Months')""",(new_id,new_name,shop,new_area,new_area))
                         refresh_database_cache()
                         st.rerun()
                     except Exception as exc: st.error(f'บันทึกไม่สำเร็จ: {exc}')
@@ -641,10 +659,10 @@ elif page in ['Panel Profile','Inspection']:
         last_status=('NG' if last['NG'] else 'OK') if last else '—'
         last_ng=str(last['NG']) if last else '—'
         c1,c2,c3=st.columns(3,gap='small')
-        for col,label,val in [(c1,'Check Items','35'),(c2,'Last Result',last_status),(c3,'Open NG*',last_ng)]:
+        for col,label,val in [(c1,'Check Items','24'),(c2,'Last Result',last_status),(c3,'Open NG*',last_ng)]:
             with col:st.markdown(f'<div class="kpi" style="text-align:center;min-height:98px;padding:12px 3px"><div class="num" style="font-size:27px;margin:0">{val}</div><div class="label">{label}</div></div>',unsafe_allow_html=True)
         st.caption('* Open NG แสดงจำนวนข้อ NG จากผลตรวจล่าสุด ไม่ใช่จำนวนปัญหาคงค้างที่ตรวจยืนยันแล้ว')
-        fields=[('Panel ID',panel_id),('Shop',shop),('Machine Name',p['name']),('Zone',p.get('zone') or '—'),('Area / Process',p['area']),('Panel Type',p['type']),('Inspection Cycle',p['cycle']),('Last Inspection',last['date'] if last else '—'),('Next Inspection','—')]
+        fields=[('Panel ID',panel_id),('Shop',shop),('Machine Name',p['name']),('Zone',p.get('zone') or '—'),('Area / Process',p['area']),('Panel Type',p['type']),('Maintain Cycle','6 Months'),('Last Inspection',last['date'] if last else '—'),('Next Maintain Inspection',str(panel_cycle_status(p,st.session_state.inspections)[1] or '—'))]
         rows=''.join(f'<div class="info-row"><span>{html(k)}</span><span>{html(v)}</span></div>' for k,v in fields)
         st.markdown('<div class="profile-table"><h3 style="margin:0 0 15px">Panel Information</h3>'+rows+'</div>',unsafe_allow_html=True)
         st.subheader('Responsible Team — ผู้รับผิดชอบประจำตู้')
@@ -655,7 +673,7 @@ elif page in ['Panel Profile','Inspection']:
             employee = employee_details(p.get(key),employees)
             photo = employee_photo(p.get(key),employees)
             st.markdown(maintenance_card(label,employee,photo,icon),unsafe_allow_html=True)
-        if st.button('☑  Start Inspection — 35 Items',type='primary',use_container_width=True):goto('Inspection',panel_id)
+        if st.button('☑  Start Inspection — Maintain / Set up',type='primary',use_container_width=True):goto('Inspection',panel_id)
         a,b=st.columns(2)
         if a.button('◴  History',use_container_width=True):
             st.session_state.show_history=True
@@ -666,7 +684,7 @@ elif page in ['Panel Profile','Inspection']:
         if st.session_state.get('show_history'):
             with st.expander('Inspection History',expanded=True):
                 if current:
-                    for r in reversed(current):st.write(f'{r["date"]} • {r["inspector"]} • OK {r["OK"]} / NG {r["NG"]} / N/A {r["NA"]}')
+                    for r in reversed(current):st.write(f'{r["date"]} • {r.get("inspection_type","Legacy")} • {r["inspector"]} • OK {r["OK"]} / NG {r["NG"]} / N/A {r["NA"]}')
                 else:st.write('ยังไม่มีประวัติการตรวจ')
         if st.session_state.get('show_qr'):
             if not st.secrets.get('APP_BASE_URL', ''): st.warning('ก่อนพิมพ์ QR ต้องตั้งค่า APP_BASE_URL ใน Streamlit Secrets ให้เป็น URL เว็บจริง')
@@ -674,10 +692,22 @@ elif page in ['Panel Profile','Inspection']:
             st.markdown(f"**{panel_id}**")
             st.caption("Scan to Profile")
             st.download_button('ดาวน์โหลด QR Code',qr_bytes(panel_id),file_name=panel_id+'.png',mime='image/png')
+        with st.expander('⚙️ แจ้งติดตั้งตู้ใหม่ / Modify (เริ่มรอบ Set up ใหม่)'):
+            st.caption('การบันทึกเหตุการณ์ใหม่จะทำให้ผล Set up ครั้งก่อนใช้ยืนยันเหตุการณ์ใหม่นี้ไม่ได้')
+            with st.form('setup_event_form'):
+                event_kind=st.selectbox('ประเภทเหตุการณ์', ['ติดตั้งตู้ใหม่','Modify ตู้'])
+                event_date=st.date_input('วันที่ติดตั้ง / Modify',value=date.today(),max_value=date.today())
+                if st.form_submit_button('บันทึกเหตุการณ์และกำหนดให้ตรวจ Set up'):
+                    with db_conn() as conn:
+                        with conn.cursor() as cur:
+                            cur.execute('UPDATE control_panels SET setup_event=%s,setup_event_date=%s,setup_event_id=%s,updated_at=NOW() WHERE panel_id=%s',
+                                        (event_kind,event_date,str(uuid4()),panel_id))
+                    refresh_database_cache()
+                    st.rerun()
         with st.expander('✏️ Edit Panel Profile',expanded=False):
             with st.form('edit_profile'):
                 edit_fields=[('name','ชื่อเครื่องจักร'),('zone','Zone'),('area','Area / Process'),('type','ประเภทตู้'),('cycle','รอบตรวจ')]
-                vals={k:st.text_input(label,value=p.get(k,'') or '') for k,label in edit_fields}
+                vals={k:st.text_input(label,value=('6 Months' if k=='cycle' else p.get(k,'') or ''),disabled=(k=='cycle')) for k,label in edit_fields}
                 vals['white']=employee_picker('ผู้รับผิดชอบ White',employees,p.get('white',''),key='edit_white',shop=shop,shift='White')
                 vals['yellow']=employee_picker('ผู้รับผิดชอบ Yellow',employees,p.get('yellow',''),key='edit_yellow',shop=shop,shift='Yellow')
                 vals['inspector']=employee_picker('ผู้ตรวจสอบ',employees,p.get('inspector',''),key='edit_inspector',shop=shop)
@@ -716,40 +746,49 @@ elif page in ['Panel Profile','Inspection']:
                     except Exception as exc: st.error(f'บันทึกข้อมูลไม่สำเร็จ: {exc}')
         if st.button(f'▥  Dashboard — {shop}  →',type='primary',use_container_width=True):goto('Dashboard')
     else:
-        st.header(f'✅ Checklist — {panel_id} (35 Items)')
-        st.caption('รายการตรวจ 35 ข้อ • เลือก OK / NG / N/A ให้ครบทุกข้อก่อนส่งผล • ตรวจเฉพาะรายการที่เกี่ยวข้องกับตู้และตามสิทธิ์ผู้ตรวจ')
-        categories=[('A. Identification & LOTO',6),('B. Panel Protection',7),('C. Electrical Components & Wiring',10),('D. Preventive Maintenance',4),('E. Charging Equipment',2),('F. Breaker Inspection',3),('G. Safety & Housekeeping',3)]
-        checklist_items=CHECKLIST_ITEMS
-        with st.form('checklist'):
-            inspector_id=employee_picker('ผู้ตรวจสอบ',employees,shop=shop,key='check_inspector')
+        st.header(f'✅ Checklist — {panel_id} (24 Items)')
+        mode = st.radio('ประเภทการตรวจ', ['Maintain','Set up'], horizontal=True)
+        item_numbers = MAINTAIN_ITEM_NUMBERS if mode == 'Maintain' else SETUP_ITEM_NUMBERS
+        if mode == 'Maintain':
+            status_maintain, next_due, _ = panel_cycle_status(p, st.session_state.inspections)
+            st.caption(f'ตรวจทุก 6 เดือน • สถานะปัจจุบัน: {status_maintain} • กำหนดตรวจครั้งถัดไป: {next_due or "ยังไม่เคยตรวจ"}')
+        else:
+            if not p.get('setup_event_date'):
+                st.warning('กรุณาไปหน้า Panel Profile และบันทึกเหตุการณ์ติดตั้งตู้ใหม่ / Modify ก่อนตรวจ Set up')
+                st.stop()
+            st.info(f"เหตุการณ์: {p.get('setup_event')} • วันที่ {p.get('setup_event_date')} • ตรวจเฉพาะข้อ 20 และ 24")
+        with st.form(f'checklist_{mode}'):
+            inspector_id=employee_picker('ผู้ตรวจสอบ',employees,shop=shop,key=f'check_inspector_{mode}')
             inspector=employee_label(inspector_id,employees)
             answers={}
-            n=0
-            for category,count in categories:
-                with st.expander(category,expanded=(n==0)):
-                    for _ in range(count):
-                        n+=1
-                        st.markdown(f'**ข้อ {n:02d}. {checklist_items[n-1]}**')
-                        answers[n]=st.radio(f'ผลตรวจข้อ {n:02d}', ['ยังไม่ตรวจ','OK','NG','N/A'],horizontal=True,key=f'check_{panel_id}_{n}',label_visibility='collapsed')
+            for n in item_numbers:
+                st.markdown(f'**ข้อ {n:02d}. {CHECKLIST_ITEMS[n-1]}**')
+                answers[n]=st.radio(f'ผลตรวจข้อ {n:02d}', ['ยังไม่ตรวจ','OK','NG','N/A'],horizontal=True,
+                                    key=f'check_{mode}_{panel_id}_{n}',label_visibility='collapsed')
             notes=st.text_area('หมายเหตุ / รายละเอียด NG')
-            if st.form_submit_button('ส่งผลตรวจ',type='primary'):
+            if st.form_submit_button(f'ส่งผลตรวจ {mode} ({len(item_numbers)} Items)',type='primary'):
                 if not inspector.strip():st.error('กรุณาระบุชื่อผู้ตรวจสอบ')
-                elif any(v=='ยังไม่ตรวจ' for v in answers.values()):st.error('กรุณาตรวจให้ครบ 35 ข้อ')
+                elif any(v=='ยังไม่ตรวจ' for v in answers.values()):st.error(f'กรุณาตรวจให้ครบ {len(item_numbers)} ข้อ')
                 elif 'NG' in answers.values() and not notes.strip():st.error('กรุณาระบุรายละเอียด NG')
                 else:
                     try:
                         with db_conn() as conn:
                             with conn.cursor() as cur:
-                                cur.execute("""INSERT INTO inspections(panel_id,inspector_name,inspection_date,overall_status,remarks)
-                                    VALUES (%s,%s,CURRENT_DATE,%s,%s) RETURNING id""",
-                                    (panel_id,inspector,'NG' if 'NG' in answers.values() else 'OK',notes))
+                                cur.execute("""INSERT INTO inspections
+                                    (panel_id,inspector_name,inspection_date,overall_status,remarks,
+                                     inspection_type,setup_event,setup_event_date,setup_event_id)
+                                    VALUES (%s,%s,CURRENT_DATE,%s,%s,%s,%s,%s,%s) RETURNING id""",
+                                    (panel_id,inspector,'NG' if 'NG' in answers.values() else 'OK',notes,
+                                     mode,p.get('setup_event') if mode=='Set up' else None,
+                                     p.get('setup_event_date') if mode=='Set up' else None,
+                                     p.get('setup_event_id') if mode=='Set up' else None))
                                 inspection_id=cur.fetchone()[0]
                                 for item_no,result in answers.items():
                                     cur.execute("""INSERT INTO inspection_results(inspection_id,item_id,result,ng_detail)
                                         SELECT %s,id,%s,%s FROM inspection_items WHERE item_no=%s""",
                                         (inspection_id,result,notes if result=='NG' else None,item_no))
                         refresh_database_cache()
-                        st.success('บันทึกผลตรวจทั้ง 35 ข้อลง Neon แล้ว')
+                        st.success(f'บันทึกผลตรวจ {mode} {len(item_numbers)} ข้อลง Neon แล้ว')
                         st.rerun()
                     except Exception as exc: st.error(f'บันทึกผลตรวจไม่สำเร็จ: {exc}')
 elif page=='NG Tracking':
