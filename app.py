@@ -569,7 +569,8 @@ elif page in ['Panel Profile','Inspection']:
                 vals['inspector']=employee_picker('ผู้ตรวจสอบ',employees,p.get('inspector',''),key='edit_inspector',shop=shop)
                 vals['repairer']=employee_picker('ผู้แก้ไข',employees,p.get('repairer',''),key='edit_repairer',shop=shop)
                 vals['verifier']=employee_picker('ผู้ตรวจยืนยันหลังแก้ไข',employees,p.get('verifier',''),key='edit_verifier',shop=shop)
-                panel_upload=st.file_uploader('รูปตู้ (อัปโหลดเมื่อมีการเปลี่ยนรูปเท่านั้น)',type=['jpg','jpeg','png','webp'],key='up_panel')
+                panel_upload=st.file_uploader('รูปตู้ (อัปโหลดรูปใหม่เพื่อแทนที่รูปเดิม)',type=['jpg','jpeg','png','webp'],key='up_panel')
+                st.caption('รูปใหม่จะเขียนทับรูปเดิมของ Panel ID นี้ใน Neon โดยไม่สร้างประวัติรูปซ้ำ · หากไม่เลือกรูป จะเก็บรูปปัจจุบันไว้')
                 if st.form_submit_button('บันทึกข้อมูล',type='primary'):
                     try:
                         if not vals['name'].strip():
@@ -582,14 +583,21 @@ elif page in ['Panel Profile','Inspection']:
                                         panel_name=%s,location=%s,area=%s,zone=%s,panel_type=%s,inspection_cycle=%s,
                                         white_employee_id=%s,yellow_employee_id=%s,
                                         inspector_employee_id=%s,repairer_employee_id=%s,verifier_employee_id=%s,
-                                        panel_photo_data=COALESCE(%s,panel_photo_data),updated_at=NOW()
+                                        updated_at=NOW()
                                         WHERE panel_id=%s""",
                                         (vals['name'],vals['area'],vals['area'],vals['zone'],vals['type'],vals['cycle'],
                                          vals['white'] or None,vals['yellow'] or None,vals['inspector'] or None,
                                          vals['repairer'] or None,vals['verifier'] or None,
-                                         psycopg2.Binary(photo) if photo else None,panel_id))
+                                         panel_id))
+                                    # One panel = one current photo. Updating the BYTEA column
+                                    # replaces its previous value; no photo history is inserted.
+                                    if photo is not None:
+                                        cur.execute('''UPDATE control_panels
+                                            SET panel_photo_data=%s, updated_at=NOW()
+                                            WHERE panel_id=%s''',
+                                            (psycopg2.Binary(photo), panel_id))
                             refresh_database_cache()
-                            st.success('บันทึกโปรไฟล์ลง Neon Database แล้ว')
+                            st.success('บันทึกโปรไฟล์และแทนที่รูปเดิมแล้ว' if photo is not None else 'บันทึกโปรไฟล์แล้ว (คงรูปเดิมไว้)')
                             st.rerun()
                     except Exception as exc: st.error(f'บันทึกข้อมูลไม่สำเร็จ: {exc}')
         if st.button(f'▥  Dashboard — {shop}  →',type='primary',use_container_width=True):goto('Dashboard')
