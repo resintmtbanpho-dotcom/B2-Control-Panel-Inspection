@@ -504,6 +504,28 @@ def inspection_map_status(panel_id, latest_results):
     return item.get('map_status', 'Not Inspected')
 
 
+@st.dialog("📍 รายละเอียด Control Panel", width="large")
+def panel_map_popup(panel, status):
+    """Read-only panel quick view opened by a map pin on the dashboard."""
+    status_style = {
+        'NG': ('#fee2e2', '#b91c1c', '🔴 NG'),
+        'OK': ('#dcfce7', '#166534', '🟢 OK'),
+        'Overdue': ('#fef3c7', '#92400e', '🟡 เกินกำหนด'),
+        'Not Inspected': ('#e5e7eb', '#374151', '⚪ รอตรวจ'),
+    }
+    bg, fg, status_label = status_style.get(status, status_style['Not Inspected'])
+    st.markdown(f"""<div style="background:#f4f9f9;border:1px solid #d8e7e8;border-radius:20px;padding:24px 22px;margin-bottom:18px;">
+        <div style="font-size:clamp(23px,4vw,32px);font-weight:850;color:#073f43;line-height:1.4;margin-bottom:20px;overflow-wrap:anywhere;">📍 {html(panel['id'])} — {html(panel['name'])}</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px;">
+            <div style="background:white;border-radius:13px;padding:13px;min-width:0;"><div style="font-size:15px;color:#64748b;">Zone</div><div style="font-size:clamp(17px,2.5vw,23px);font-weight:800;color:#17363c;overflow-wrap:anywhere;">{html(panel.get('zone') or '—')}</div></div>
+            <div style="background:white;border-radius:13px;padding:13px;min-width:0;"><div style="font-size:15px;color:#64748b;">Area / Process</div><div style="font-size:clamp(17px,2.5vw,23px);font-weight:800;color:#17363c;overflow-wrap:anywhere;">{html(panel.get('area') or '—')}</div></div>
+        </div>
+        <div style="background:{bg};border-radius:13px;padding:14px 17px;color:{fg};font-size:clamp(20px,3vw,27px);font-weight:850;">สถานะ: {status_label}</div>
+    </div>""", unsafe_allow_html=True)
+    if st.button('📋 เปิด Panel Profile', type='primary', use_container_width=True, key=f"popup_profile_{panel['id']}"):
+        goto('Panel Profile', panel['id'])
+
+
 def render_panel_map(shop_name, shop_panels, latest_results, editable=False):
     path = map_file_for(shop_name)
     if not path:
@@ -556,10 +578,19 @@ def render_panel_map(shop_name, shop_panels, latest_results, editable=False):
         if editable and target:
             st.session_state[f"pending_map_{shop_name}"] = (target, min(1,max(0,cx/width)),min(1,max(0,cy/height)))
     if selected:
-        st.markdown(f"**📍 {html(selected['id'])} — {html(selected['name'])}**")
-        st.write(f"Zone: {selected.get('zone') or '—'} | Area: {selected.get('area') or '—'} | สถานะ: {inspection_map_status(selected['id'], latest_results)}")
-        if st.button("เปิด Panel Profile",key=f"map_open_{shop_name}_{'edit' if editable else 'view'}"):
-            goto("Panel Profile",selected["id"])
+        if not editable:
+            # A dialog overlays the dashboard instead of pushing text below the map.
+            # Remember the click to avoid reopening the dialog after it is dismissed.
+            click_key = (shop_name, selected['id'], click['x'], click['y'])
+            seen_key = f"last_map_popup_click_{shop_name}"
+            if st.session_state.get(seen_key) != click_key:
+                st.session_state[seen_key] = click_key
+                panel_map_popup(selected, inspection_map_status(selected['id'], latest_results))
+        else:
+            st.markdown(f"**📍 {html(selected['id'])} — {html(selected['name'])}**")
+            st.write(f"Zone: {selected.get('zone') or '—'} | Area: {selected.get('area') or '—'} | สถานะ: {inspection_map_status(selected['id'], latest_results)}")
+            if st.button("เปิด Panel Profile",key=f"map_open_{shop_name}_edit"):
+                goto("Panel Profile",selected["id"])
     if editable:
         pending = st.session_state.get(f"pending_map_{shop_name}")
         if pending:
