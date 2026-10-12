@@ -747,50 +747,69 @@ elif page in ['Panel Profile','Inspection']:
         if st.button(f'▥  Dashboard — {shop}  →',type='primary',use_container_width=True):goto('Dashboard')
     else:
         st.header(f'✅ Checklist — {panel_id} (24 Items)')
-        mode = st.radio('ประเภทการตรวจ', ['Maintain','Set up'], horizontal=True)
-        item_numbers = MAINTAIN_ITEM_NUMBERS if mode == 'Maintain' else SETUP_ITEM_NUMBERS
-        if mode == 'Maintain':
-            status_maintain, next_due, _ = panel_cycle_status(p, st.session_state.inspections)
-            st.caption(f'ตรวจทุก 6 เดือน • สถานะปัจจุบัน: {status_maintain} • กำหนดตรวจครั้งถัดไป: {next_due or "ยังไม่เคยตรวจ"}')
+        status_maintain, next_due, setup_status = panel_cycle_status(p, st.session_state.inspections)
+        st.caption(f'**Maintain 22 ข้อ:** ตรวจทุก 6 เดือน • สถานะ: {status_maintain} • กำหนดครั้งถัดไป: {next_due or "ยังไม่เคยตรวจ"}')
+        st.info('**Set up ข้อ 20 และ 24:** แสดงในรายการเดียวกัน แต่ไม่บังคับตรวจทุก 6 เดือน ตรวจเฉพาะเมื่อติดตั้งตู้ใหม่หรือ Modify')
+        has_setup_event = bool(p.get('setup_event_date') and p.get('setup_event_id'))
+        if has_setup_event:
+            st.caption(f"เหตุการณ์ Set up: {p.get('setup_event') or 'ติดตั้งใหม่ / Modify'} • {p.get('setup_event_date')} • สถานะ: {setup_status}")
         else:
-            if not p.get('setup_event_date'):
-                st.warning('กรุณาไปหน้า Panel Profile และบันทึกเหตุการณ์ติดตั้งตู้ใหม่ / Modify ก่อนตรวจ Set up')
-                st.stop()
-            st.info(f"เหตุการณ์: {p.get('setup_event')} • วันที่ {p.get('setup_event_date')} • ตรวจเฉพาะข้อ 20 และ 24")
-        with st.form(f'checklist_{mode}'):
-            inspector_id=employee_picker('ผู้ตรวจสอบ',employees,shop=shop,key=f'check_inspector_{mode}')
+            st.caption('ยังไม่มีเหตุการณ์ติดตั้งใหม่ / Modify: ข้อ 20 และ 24 ข้ามได้ (หากต้องตรวจให้บันทึกเหตุการณ์ใน Panel Profile ก่อน)')
+        with st.form('checklist_all_24'):
+            inspector_id=employee_picker('ผู้ตรวจสอบ',employees,shop=shop,key='check_inspector_all')
             inspector=employee_label(inspector_id,employees)
             answers={}
-            for n in item_numbers:
-                st.markdown(f'**ข้อ {n:02d}. {CHECKLIST_ITEMS[n-1]}**')
-                answers[n]=st.radio(f'ผลตรวจข้อ {n:02d}', ['ยังไม่ตรวจ','OK','NG','N/A'],horizontal=True,
-                                    key=f'check_{mode}_{panel_id}_{n}',label_visibility='collapsed')
-            notes=st.text_area('หมายเหตุ / รายละเอียด NG')
-            if st.form_submit_button(f'ส่งผลตรวจ {mode} ({len(item_numbers)} Items)',type='primary'):
-                if not inspector.strip():st.error('กรุณาระบุชื่อผู้ตรวจสอบ')
-                elif any(v=='ยังไม่ตรวจ' for v in answers.values()):st.error(f'กรุณาตรวจให้ครบ {len(item_numbers)} ข้อ')
-                elif 'NG' in answers.values() and not notes.strip():st.error('กรุณาระบุรายละเอียด NG')
+            for n in range(1,25):
+                if n in SETUP_ITEM_NUMBERS:
+                    st.markdown(f'**ข้อ {n:02d}. {CHECKLIST_ITEMS[n-1]}**  🟠 `Set up — ติดตั้งใหม่ / Modify เท่านั้น`')
+                    options=['ไม่ต้องตรวจรอบนี้','OK','NG','N/A']
+                else:
+                    st.markdown(f'**ข้อ {n:02d}. {CHECKLIST_ITEMS[n-1]}**  🟢 `Maintain`')
+                    options=['ยังไม่ตรวจ','OK','NG','N/A']
+                answers[n]=st.radio(f'ผลตรวจข้อ {n:02d}', options, horizontal=True,
+                                    key=f'check_all_{panel_id}_{n}',label_visibility='collapsed')
+            notes=st.text_area('หมายเหตุ / รายละเอียด NG',key='notes_all_24')
+            if st.form_submit_button('บันทึกผลตรวจ Maintain (22 ข้อ) + Set up (ถ้ามี)',type='primary'):
+                maintain_answers={n:answers[n] for n in MAINTAIN_ITEM_NUMBERS}
+                setup_answers={n:answers[n] for n in SETUP_ITEM_NUMBERS}
+                selected_setup={n:v for n,v in setup_answers.items() if v!='ไม่ต้องตรวจรอบนี้'}
+                if not inspector.strip():
+                    st.error('กรุณาเลือกผู้ตรวจสอบ')
+                elif any(v=='ยังไม่ตรวจ' for v in maintain_answers.values()):
+                    st.error('กรุณาตรวจ Maintain ให้ครบ 22 ข้อ (Set up ข้ามได้)')
+                elif selected_setup and len(selected_setup)!=2:
+                    st.error('หากตรวจ Set up ต้องระบุผลทั้งข้อ 20 และ 24 หรือเลือกไม่ต้องตรวจรอบนี้ทั้งสองข้อ')
+                elif selected_setup and not has_setup_event:
+                    st.error('กรุณาบันทึกเหตุการณ์ติดตั้งใหม่ / Modify ที่หน้า Panel Profile ก่อนส่งผล Set up')
+                elif 'NG' in list(maintain_answers.values())+list(selected_setup.values()) and not notes.strip():
+                    st.error('กรุณาระบุรายละเอียด NG')
                 else:
                     try:
                         with db_conn() as conn:
                             with conn.cursor() as cur:
-                                cur.execute("""INSERT INTO inspections
-                                    (panel_id,inspector_name,inspection_date,overall_status,remarks,
-                                     inspection_type,setup_event,setup_event_date,setup_event_id)
-                                    VALUES (%s,%s,CURRENT_DATE,%s,%s,%s,%s,%s,%s) RETURNING id""",
-                                    (panel_id,inspector,'NG' if 'NG' in answers.values() else 'OK',notes,
-                                     mode,p.get('setup_event') if mode=='Set up' else None,
-                                     p.get('setup_event_date') if mode=='Set up' else None,
-                                     p.get('setup_event_id') if mode=='Set up' else None))
-                                inspection_id=cur.fetchone()[0]
-                                for item_no,result in answers.items():
-                                    cur.execute("""INSERT INTO inspection_results(inspection_id,item_id,result,ng_detail)
-                                        SELECT %s,id,%s,%s FROM inspection_items WHERE item_no=%s""",
-                                        (inspection_id,result,notes if result=='NG' else None,item_no))
+                                groups=[('Maintain',maintain_answers)]
+                                if selected_setup:
+                                    groups.append(('Set up',selected_setup))
+                                for mode,group_answers in groups:
+                                    cur.execute("""INSERT INTO inspections
+                                        (panel_id,inspector_name,inspection_date,overall_status,remarks,
+                                         inspection_type,setup_event,setup_event_date,setup_event_id)
+                                        VALUES (%s,%s,CURRENT_DATE,%s,%s,%s,%s,%s,%s) RETURNING id""",
+                                        (panel_id,inspector,'NG' if 'NG' in group_answers.values() else 'OK',notes,
+                                         mode,p.get('setup_event') if mode=='Set up' else None,
+                                         p.get('setup_event_date') if mode=='Set up' else None,
+                                         p.get('setup_event_id') if mode=='Set up' else None))
+                                    inspection_id=cur.fetchone()[0]
+                                    for item_no,result in group_answers.items():
+                                        cur.execute("""INSERT INTO inspection_results(inspection_id,item_id,result,ng_detail)
+                                            SELECT %s,id,%s,%s FROM inspection_items WHERE item_no=%s""",
+                                            (inspection_id,result,notes if result=='NG' else None,item_no))
                         refresh_database_cache()
-                        st.success(f'บันทึกผลตรวจ {mode} {len(item_numbers)} ข้อลง Neon แล้ว')
+                        st.success('บันทึก Maintain 22 ข้อ' + (' และ Set up 2 ข้อ' if selected_setup else ' (ข้าม Set up)') + ' ลง Neon แล้ว')
                         st.rerun()
-                    except Exception as exc: st.error(f'บันทึกผลตรวจไม่สำเร็จ: {exc}')
+                    except Exception as exc:
+                        st.error(f'บันทึกผลตรวจไม่สำเร็จ: {exc}')
+
 elif page=='NG Tracking':
     st.header(f'⚠️ NG Tracking — {shop}')
     records=[r for r in st.session_state.inspections if r['shop']==shop and r['NG']>0]
