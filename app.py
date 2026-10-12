@@ -252,6 +252,22 @@ html, body, [data-testid="stAppViewContainer"] {font-size:17px}
 .inspection-date-value{font-size:clamp(27px,3.4vw,43px);font-weight:850;color:#143940;margin:12px 0;line-height:1.18;overflow-wrap:anywhere}
 .inspection-date-pill{display:inline-block;padding:7px 13px;border-radius:30px;font-size:clamp(15px,1.5vw,19px);font-weight:750}
 @media(max-width:650px){.inspection-date-grid{gap:8px}.inspection-date-card{padding:14px 11px}.inspection-date-title{font-size:15px}.inspection-date-value{font-size:clamp(19px,5vw,27px)}.inspection-date-pill{font-size:13px;padding:5px 8px}}
+
+/* Panel Profile: one tap target per KPI, no secondary detail buttons. */
+div[class*="st-key-profile_kpi_"] button {
+  width:100%!important;min-height:118px!important;padding:15px 5px!important;
+  border-radius:17px!important;border:1px solid #dce8e9!important;
+  background:#fff!important;box-shadow:0 4px 15px #143e4410!important;
+  white-space:pre-line!important;line-height:1.5!important;
+  font-size:20px!important;font-weight:800!important;
+  border-left:6px solid #1677a7!important;
+}
+div[class*="st-key-profile_kpi_"] button p {white-space:pre-line!important;font-size:20px!important;line-height:1.5!important;font-weight:800!important;margin:0!important}
+div[class*="st-key-profile_kpi_"] button:hover {background:#f0f8f9!important;transform:translateY(-1px)}
+div[class*="st-key-profile_kpi_"][class*="_OK"] button {color:#07845e!important;border-left-color:#07845e!important}
+div[class*="st-key-profile_kpi_"][class*="_NG"] button {color:#d32f40!important;border-left-color:#d32f40!important}
+div[class*="st-key-profile_kpi_"][class*="_Check_Items"] button {color:#1677a7!important}
+@media(max-width:650px){div[class*="st-key-profile_kpi_"] button{min-height:94px!important;padding:10px 2px!important}div[class*="st-key-profile_kpi_"] button p{font-size:17px!important}}
 </style>""",unsafe_allow_html=True)
 
 def html(value):
@@ -785,20 +801,16 @@ elif page in ['Panel Profile','Inspection']:
         st.markdown(f'<div class="profile-title">{html(panel_id)}</div><div class="profile-sub">{html(p["name"])} · {html(p["type"])}</div>',unsafe_allow_html=True)
         current=[r for r in st.session_state.inspections if r['shop']==shop and r['panel']==panel_id]
         last=current[-1] if current else None
-        # Clickable, compact KPI cards. OK/NG counts refer to the latest inspection record.
+        # The entire KPI tile is a native Streamlit button (no separate detail button).
         cards = [('Check Items', 24, '#1677a7'),
                  ('OK', int(last['OK']) if last else '—', '#07845e'),
                  ('NG', int(last['NG']) if last else '—', '#d32f40')]
         for col, (label, value, color) in zip(st.columns(3, gap='small'), cards):
             with col:
-                st.markdown(
-                    f'<div class="kpi profile-kpi" style="--kpi-accent:{color};text-align:center;min-height:92px;padding:12px 4px;margin-bottom:3px">'
-                    f'<div class="num" style="font-size:clamp(26px,5vw,38px);margin:0;color:{color}">{value}</div>'
-                    f'<div class="label" style="font-size:clamp(13px,2.5vw,17px)">{label}</div></div>',
-                    unsafe_allow_html=True)
-                if st.button('ดูรายละเอียด ▾', key=f'profile_kpi_{panel_id}_{label}', use_container_width=True):
+                if st.button(f"{value}\n\n{label}", key=f'profile_kpi_{panel_id}_{label}',
+                             use_container_width=True, help=f'แตะเพื่อดูรายละเอียด {label}'):
                     profile_kpi_popup(panel_id, label, last)
-        st.caption('OK / NG นับจากผลตรวจครั้งล่าสุดของตู้นี้ · แตะดูรายละเอียดแต่ละกล่อง')
+        st.caption('OK / NG นับจากผลตรวจครั้งล่าสุดของตู้นี้ · แตะที่กล่องเพื่อดูรายละเอียด')
         # Maintain dates appear first, side by side, and change to red when overdue.
         maintain_records = [r for r in current if r.get('inspection_type') == 'Maintain']
         latest_maintain = max(maintain_records, key=lambda r: (r['date'], r['id'])) if maintain_records else None
