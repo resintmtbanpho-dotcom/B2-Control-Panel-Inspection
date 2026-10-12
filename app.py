@@ -262,12 +262,12 @@ div[class*="st-key-profile_kpi_"] button {
   font-size:20px!important;font-weight:800!important;
   border-left:6px solid #1677a7!important;
 }
-div[class*="st-key-profile_kpi_"] button p {white-space:pre-line!important;font-size:20px!important;line-height:1.5!important;font-weight:800!important;margin:0!important}
+div[class*="st-key-profile_kpi_"] button p {white-space:pre-line!important;font-size:22px!important;line-height:1.5!important;font-weight:800!important;margin:0!important}
 div[class*="st-key-profile_kpi_"] button:hover {background:#f0f8f9!important;transform:translateY(-1px)}
 div[class*="st-key-profile_kpi_"][class*="_OK"] button {color:#07845e!important;border-left-color:#07845e!important}
 div[class*="st-key-profile_kpi_"][class*="_NG"] button {color:#d32f40!important;border-left-color:#d32f40!important}
 div[class*="st-key-profile_kpi_"][class*="_Check_Items"] button {color:#1677a7!important}
-@media(max-width:650px){div[class*="st-key-profile_kpi_"] button{min-height:94px!important;padding:10px 2px!important}div[class*="st-key-profile_kpi_"] button p{font-size:17px!important}}
+@media(max-width:650px){div[class*="st-key-profile_kpi_"] button{min-height:94px!important;padding:10px 2px!important}div[class*="st-key-profile_kpi_"] button p{font-size:19px!important}}
 </style>""",unsafe_allow_html=True)
 
 def html(value):
