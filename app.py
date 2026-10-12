@@ -244,6 +244,14 @@ html, body, [data-testid="stAppViewContainer"] {font-size:17px}
   .staff-card .statuspill{font-size:13px}
 }
 
+
+/* Top profile date cards: prominent Thai dates, two columns on desktop and mobile. */
+.inspection-date-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin:14px 0 20px}
+.inspection-date-card{padding:22px 24px;border-radius:17px;min-width:0}
+.inspection-date-title{font-size:clamp(18px,2.2vw,24px);font-weight:750;color:#52636a}
+.inspection-date-value{font-size:clamp(27px,3.4vw,43px);font-weight:850;color:#143940;margin:12px 0;line-height:1.18;overflow-wrap:anywhere}
+.inspection-date-pill{display:inline-block;padding:7px 13px;border-radius:30px;font-size:clamp(15px,1.5vw,19px);font-weight:750}
+@media(max-width:650px){.inspection-date-grid{gap:8px}.inspection-date-card{padding:14px 11px}.inspection-date-title{font-size:15px}.inspection-date-value{font-size:clamp(19px,5vw,27px)}.inspection-date-pill{font-size:13px;padding:5px 8px}}
 </style>""",unsafe_allow_html=True)
 
 def html(value):
@@ -410,6 +418,55 @@ def add_six_months(value):
     year, month0 = divmod(month_index, 12)
     month = month0 + 1
     return date(year, month, min(value.day, monthrange(year, month)[1]))
+
+
+def thai_date(value):
+    if not value:
+        return 'ยังไม่มีข้อมูล'
+    d = date.fromisoformat(str(value)) if not isinstance(value, date) else value
+    months = ('ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.',
+              'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.')
+    return f'{d.day} {months[d.month-1]} {d.year+543}'
+
+
+def inspection_details(inspection_id):
+    return query_all("""SELECT it.item_no, it.description, ir.result,
+                 ir.ng_detail, ir.na_reason, ir.corrective_action, ir.closed_at
+                 FROM inspection_results ir
+                 JOIN inspection_items it ON it.id=ir.item_id
+                 WHERE ir.inspection_id=%s ORDER BY it.item_no""", (inspection_id,))
+
+
+def render_inspection_details(record, only_ng=False, key_prefix='history'):
+    details = inspection_details(record['id'])
+    if not details:
+        st.info('ไม่พบรายละเอียดรายข้อของการตรวจนี้')
+        return
+    if not only_ng:
+        status_filter = st.radio('แสดงผลตรวจ', ['ทั้งหมด', 'OK', 'NG', 'N/A'],
+                                 horizontal=True, key=f'{key_prefix}_filter_{record["id"]}')
+    else:
+        status_filter = 'NG'
+    for item in details:
+        if status_filter != 'ทั้งหมด' and item['result'] != status_filter:
+            continue
+        mark = {'OK':'🟢','NG':'🔴','N/A':'🟡'}.get(item['result'],'⚪')
+        st.markdown(f'**{mark} ข้อ {item["item_no"]:02d} — {item["result"]}**')
+        st.write(item['description'])
+        if item['result'] == 'NG':
+            # Earlier app versions saved one shared NG note on inspections.remarks.
+            # Fall back to that historical note only if the per-item note is absent.
+            note = (item.get('ng_detail') or '').strip() or (record.get('notes') or '').strip()
+            st.caption('รายละเอียด NG: ' + (note if note else 'ไม่ได้ระบุรายละเอียด NG'))
+        if item.get('na_reason'):
+            st.caption('เหตุผล N/A: ' + str(item['na_reason']))
+        if item.get('corrective_action'):
+            st.caption('การแก้ไข: ' + str(item['corrective_action']))
+        if item.get('closed_at'):
+            st.caption('ปิดงาน: ' + str(item['closed_at']))
+        st.divider()
+    if record.get('notes'):
+        st.caption('หมายเหตุการตรวจ: ' + record['notes'])
 
 
 def panel_cycle_status(panel, all_inspections, as_of=None):
@@ -662,7 +719,29 @@ elif page in ['Panel Profile','Inspection']:
         for col,label,val in [(c1,'Check Items','24'),(c2,'Last Result',last_status),(c3,'Open NG*',last_ng)]:
             with col:st.markdown(f'<div class="kpi" style="text-align:center;min-height:98px;padding:12px 3px"><div class="num" style="font-size:27px;margin:0">{val}</div><div class="label">{label}</div></div>',unsafe_allow_html=True)
         st.caption('* Open NG แสดงจำนวนข้อ NG จากผลตรวจล่าสุด ไม่ใช่จำนวนปัญหาคงค้างที่ตรวจยืนยันแล้ว')
-        fields=[('Panel ID',panel_id),('Shop',shop),('Machine Name',p['name']),('Zone',p.get('zone') or '—'),('Area / Process',p['area']),('Panel Type',p['type']),('Maintain Cycle','6 Months'),('Last Inspection',last['date'] if last else '—'),('Next Maintain Inspection',str(panel_cycle_status(p,st.session_state.inspections)[1] or '—'))]
+        # Maintain dates appear first, side by side, and change to red when overdue.
+        maintain_records = [r for r in current if r.get('inspection_type') == 'Maintain']
+        latest_maintain = max(maintain_records, key=lambda r: (r['date'], r['id'])) if maintain_records else None
+        cycle_status, next_maintain_date, _ = panel_cycle_status(p, st.session_state.inspections)
+        is_overdue = bool(next_maintain_date and date.today() > next_maintain_date)
+        last_label = thai_date(latest_maintain['date']) if latest_maintain else 'ยังไม่เคยตรวจ'
+        due_label = thai_date(next_maintain_date) if next_maintain_date else 'ยังไม่กำหนด'
+        due_background = '#fde8e8' if is_overdue else '#f9eee2'
+        due_color = '#b42318' if is_overdue else '#9a4c0b'
+        due_status = 'เกินกำหนดตรวจ' if is_overdue else ('รอตรวจตามรอบ' if next_maintain_date else 'รอตรวจครั้งแรก')
+        st.markdown(f"""<div class="inspection-date-grid">
+          <div class="inspection-date-card" style="background:#e4f1ef">
+            <div class="inspection-date-title">☑ วันที่ตรวจล่าสุด</div>
+            <div class="inspection-date-value">{html(last_label)}</div>
+            <div class="inspection-date-pill" style="background:#c6e9d8;color:#087443">{'ตรวจแล้ว' if latest_maintain else 'ยังไม่ตรวจ'}</div>
+          </div>
+          <div class="inspection-date-card" style="background:{due_background}">
+            <div class="inspection-date-title">▣ กำหนดตรวจครั้งถัดไป</div>
+            <div class="inspection-date-value" style="color:{due_color}">{html(due_label)}</div>
+            <div class="inspection-date-pill" style="background:{'#ffcaca' if is_overdue else '#fbdac3'};color:{due_color}">{due_status}</div>
+          </div>
+        </div>""", unsafe_allow_html=True)
+        fields=[('Panel ID',panel_id),('Shop',shop),('Machine Name',p['name']),('Zone',p.get('zone') or '—'),('Area / Process',p['area']),('Panel Type',p['type']),('Maintain Cycle','6 Months')]
         rows=''.join(f'<div class="info-row"><span>{html(k)}</span><span>{html(v)}</span></div>' for k,v in fields)
         st.markdown('<div class="profile-table"><h3 style="margin:0 0 15px">Panel Information</h3>'+rows+'</div>',unsafe_allow_html=True)
         st.subheader('Responsible Team — ผู้รับผิดชอบประจำตู้')
@@ -688,28 +767,7 @@ elif page in ['Panel Profile','Inspection']:
                         heading = (f'{r["date"]} • {r.get("inspection_type", "Legacy")} • '
                                    f'{r["inspector"]} • OK {r["OK"]} / NG {r["NG"]} / N/A {r["NA"]}')
                         with st.expander(heading, expanded=False):
-                            detail_rows = query_all("""SELECT it.item_no, it.description, ir.result,
-                                       ir.ng_detail, ir.na_reason, ir.corrective_action, ir.closed_at
-                                       FROM inspection_results ir
-                                       JOIN inspection_items it ON it.id=ir.item_id
-                                       WHERE ir.inspection_id=%s ORDER BY it.item_no""", (r['id'],))
-                            if not detail_rows:
-                                st.info('ไม่พบรายละเอียดรายข้อของประวัติรายการนี้')
-                            else:
-                                selected_status=st.radio('แสดงผลตรวจ', ['ทั้งหมด','OK','NG','N/A'],
-                                                         horizontal=True,key=f'hist_filter_{r["id"]}')
-                                for item in detail_rows:
-                                    if selected_status!='ทั้งหมด' and item['result']!=selected_status:
-                                        continue
-                                    mark={'OK':'🟢','NG':'🔴','N/A':'🟡'}.get(item['result'],'⚪')
-                                    st.markdown(f'**{mark} ข้อ {item["item_no"]:02d} — {item["result"]}**')
-                                    st.write(item['description'])
-                                    if item.get('ng_detail'): st.caption('รายละเอียด NG: '+str(item['ng_detail']))
-                                    if item.get('na_reason'): st.caption('เหตุผล N/A: '+str(item['na_reason']))
-                                    if item.get('corrective_action'): st.caption('การแก้ไข: '+str(item['corrective_action']))
-                                    if item.get('closed_at'): st.caption('ปิดงาน: '+str(item['closed_at']))
-                                    st.divider()
-                            if r.get('notes'): st.caption('หมายเหตุการตรวจ: '+r['notes'])
+                            render_inspection_details(r, only_ng=False, key_prefix='history')
                 else:st.write('ยังไม่มีประวัติการตรวจ')
         if st.session_state.get('show_qr'):
             if not st.secrets.get('APP_BASE_URL', ''): st.warning('ก่อนพิมพ์ QR ต้องตั้งค่า APP_BASE_URL ใน Streamlit Secrets ให้เป็น URL เว็บจริง')
@@ -843,7 +901,8 @@ elif page=='NG Tracking':
             with st.container(border=True):
                 st.error(f"{record['panel']} • NG {record['NG']} ข้อ")
                 st.write(f"วันที่ {record['date']} | ผู้ตรวจ: {record['inspector']}")
-                st.write(record.get('notes', ''))
+                with st.expander('🔎 ดูรายละเอียด NG รายข้อ', expanded=False):
+                    render_inspection_details(record, only_ng=True, key_prefix='ng_tracking')
     else:st.info('ยังไม่มีรายการ NG ที่บันทึก')
 
 elif page=='Employee Master':
