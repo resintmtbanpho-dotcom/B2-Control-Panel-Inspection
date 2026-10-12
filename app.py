@@ -457,7 +457,14 @@ def render_inspection_details(record, only_ng=False, key_prefix='history'):
             # Earlier app versions saved one shared NG note on inspections.remarks.
             # Fall back to that historical note only if the per-item note is absent.
             note = (item.get('ng_detail') or '').strip() or (record.get('notes') or '').strip()
-            st.caption('รายละเอียด NG: ' + (note if note else 'ไม่ได้ระบุรายละเอียด NG'))
+            note_text = note if note else 'ไม่ได้ระบุรายละเอียด NG'
+            st.markdown(
+                '<div style="font-size:18px;line-height:1.65;margin:9px 0 14px;overflow-wrap:anywhere">'
+                '<span style="color:#111827;font-weight:800">รายละเอียด NG: </span>'
+                f'<span style="color:#dc2626;font-weight:750">{html(note_text)}</span>'
+                '</div>',
+                unsafe_allow_html=True,
+            )
         if item.get('na_reason'):
             st.caption('เหตุผล N/A: ' + str(item['na_reason']))
         if item.get('corrective_action'):
