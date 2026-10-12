@@ -504,6 +504,40 @@ def inspection_map_status(panel_id, latest_results):
     return item.get('map_status', 'Not Inspected')
 
 
+@st.dialog("📋 รายละเอียดผลการตรวจ", width="large")
+def profile_kpi_popup(panel_id, category, latest_record):
+    st.markdown(f"### {html(panel_id)}")
+    if category == 'Check Items':
+        st.markdown("**รายการตรวจสอบทั้งหมด 24 ข้อ** · Maintain 22 ข้อ / Set up 2 ข้อ")
+        for number, description in enumerate(CHECKLIST_ITEMS, start=1):
+            typ = 'Set up' if number in SETUP_ITEM_NUMBERS else 'Maintain'
+            with st.expander(f"ข้อ {number:02d} · {typ}"):
+                st.write(description)
+        return
+    if latest_record is None:
+        st.info('ยังไม่มีประวัติผลตรวจสำหรับตู้นี้')
+        return
+    st.caption(f"ตรวจวันที่ {thai_date(latest_record['date'])} · {latest_record.get('inspection_type', 'Legacy')} · ผู้ตรวจ: {latest_record['inspector']}")
+    st.markdown(f"🟢 OK {latest_record['OK']}　🔴 NG {latest_record['NG']}　🟡 N/A {latest_record['NA']}")
+    results = inspection_details(latest_record['id'])
+    selected = [r for r in results if r['result'] == category]
+    if not selected:
+        st.info(f'ไม่มีรายการ {category} ในการตรวจล่าสุด')
+    for item in selected:
+        with st.expander(f"{'🟢' if category == 'OK' else '🔴'} ข้อ {item['item_no']:02d} — {item['description']}"):
+            if category == 'NG':
+                note = (item.get('ng_detail') or '').strip()
+                st.markdown('<span style="color:#111827;font-weight:800">รายละเอียด NG: </span>'
+                            f'<span style="color:#dc2626;font-weight:750">{html(note or "ไม่ได้ระบุรายละเอียด NG รายข้อ")}</span>',
+                            unsafe_allow_html=True)
+                if not note and latest_record.get('notes'):
+                    st.caption('หมายเหตุรวมของการตรวจ: ' + latest_record['notes'])
+                if item.get('corrective_action'):
+                    st.write('การแก้ไข: ' + str(item['corrective_action']))
+    if st.button('ปิดหน้าต่าง', use_container_width=True, key=f"close_kpi_{panel_id}_{category}"):
+        st.rerun()
+
+
 @st.dialog("📍 รายละเอียด Control Panel", width="large")
 def panel_map_popup(panel, status):
     """Read-only panel quick view opened by a map pin on the dashboard."""
@@ -751,12 +785,20 @@ elif page in ['Panel Profile','Inspection']:
         st.markdown(f'<div class="profile-title">{html(panel_id)}</div><div class="profile-sub">{html(p["name"])} · {html(p["type"])}</div>',unsafe_allow_html=True)
         current=[r for r in st.session_state.inspections if r['shop']==shop and r['panel']==panel_id]
         last=current[-1] if current else None
-        last_status=('NG' if last['NG'] else 'OK') if last else '—'
-        last_ng=str(last['NG']) if last else '—'
-        c1,c2,c3=st.columns(3,gap='small')
-        for col,label,val in [(c1,'Check Items','24'),(c2,'Last Result',last_status),(c3,'Open NG*',last_ng)]:
-            with col:st.markdown(f'<div class="kpi" style="text-align:center;min-height:98px;padding:12px 3px"><div class="num" style="font-size:27px;margin:0">{val}</div><div class="label">{label}</div></div>',unsafe_allow_html=True)
-        st.caption('* Open NG แสดงจำนวนข้อ NG จากผลตรวจล่าสุด ไม่ใช่จำนวนปัญหาคงค้างที่ตรวจยืนยันแล้ว')
+        # Clickable, compact KPI cards. OK/NG counts refer to the latest inspection record.
+        cards = [('Check Items', 24, '#1677a7'),
+                 ('OK', int(last['OK']) if last else '—', '#07845e'),
+                 ('NG', int(last['NG']) if last else '—', '#d32f40')]
+        for col, (label, value, color) in zip(st.columns(3, gap='small'), cards):
+            with col:
+                st.markdown(
+                    f'<div class="kpi profile-kpi" style="--kpi-accent:{color};text-align:center;min-height:92px;padding:12px 4px;margin-bottom:3px">'
+                    f'<div class="num" style="font-size:clamp(26px,5vw,38px);margin:0;color:{color}">{value}</div>'
+                    f'<div class="label" style="font-size:clamp(13px,2.5vw,17px)">{label}</div></div>',
+                    unsafe_allow_html=True)
+                if st.button('ดูรายละเอียด ▾', key=f'profile_kpi_{panel_id}_{label}', use_container_width=True):
+                    profile_kpi_popup(panel_id, label, last)
+        st.caption('OK / NG นับจากผลตรวจครั้งล่าสุดของตู้นี้ · แตะดูรายละเอียดแต่ละกล่อง')
         # Maintain dates appear first, side by side, and change to red when overdue.
         maintain_records = [r for r in current if r.get('inspection_type') == 'Maintain']
         latest_maintain = max(maintain_records, key=lambda r: (r['date'], r['id'])) if maintain_records else None
