@@ -336,7 +336,7 @@ try:
         FROM inspections i JOIN control_panels p ON p.panel_id=i.panel_id
         LEFT JOIN inspection_results r ON r.inspection_id=i.id
         GROUP BY i.id,p.shop ORDER BY i.inspection_date,i.id""")
-    st.session_state.inspections=[dict(shop=r['shop'],panel=r['panel_id'],date=str(r['inspection_date']),
+    st.session_state.inspections=[dict(id=r['id'],shop=r['shop'],panel=r['panel_id'],date=str(r['inspection_date']),
         inspector=r['inspector_name'],OK=r['ok'],NG=r['ng'],NA=r['na'],
         inspection_type=r.get('inspection_type') or 'Legacy',setup_event=r.get('setup_event'),
         setup_event_date=r.get('setup_event_date'),setup_event_id=r.get('setup_event_id'),notes=r['remarks'] or '') for r in result_rows]
@@ -684,7 +684,32 @@ elif page in ['Panel Profile','Inspection']:
         if st.session_state.get('show_history'):
             with st.expander('Inspection History',expanded=True):
                 if current:
-                    for r in reversed(current):st.write(f'{r["date"]} • {r.get("inspection_type","Legacy")} • {r["inspector"]} • OK {r["OK"]} / NG {r["NG"]} / N/A {r["NA"]}')
+                    for r in reversed(current):
+                        heading = (f'{r["date"]} • {r.get("inspection_type", "Legacy")} • '
+                                   f'{r["inspector"]} • OK {r["OK"]} / NG {r["NG"]} / N/A {r["NA"]}')
+                        with st.expander(heading, expanded=False):
+                            detail_rows = query_all("""SELECT it.item_no, it.description, ir.result,
+                                       ir.ng_detail, ir.na_reason, ir.corrective_action, ir.closed_at
+                                       FROM inspection_results ir
+                                       JOIN inspection_items it ON it.id=ir.item_id
+                                       WHERE ir.inspection_id=%s ORDER BY it.item_no""", (r['id'],))
+                            if not detail_rows:
+                                st.info('ไม่พบรายละเอียดรายข้อของประวัติรายการนี้')
+                            else:
+                                selected_status=st.radio('แสดงผลตรวจ', ['ทั้งหมด','OK','NG','N/A'],
+                                                         horizontal=True,key=f'hist_filter_{r["id"]}')
+                                for item in detail_rows:
+                                    if selected_status!='ทั้งหมด' and item['result']!=selected_status:
+                                        continue
+                                    mark={'OK':'🟢','NG':'🔴','N/A':'🟡'}.get(item['result'],'⚪')
+                                    st.markdown(f'**{mark} ข้อ {item["item_no"]:02d} — {item["result"]}**')
+                                    st.write(item['description'])
+                                    if item.get('ng_detail'): st.caption('รายละเอียด NG: '+str(item['ng_detail']))
+                                    if item.get('na_reason'): st.caption('เหตุผล N/A: '+str(item['na_reason']))
+                                    if item.get('corrective_action'): st.caption('การแก้ไข: '+str(item['corrective_action']))
+                                    if item.get('closed_at'): st.caption('ปิดงาน: '+str(item['closed_at']))
+                                    st.divider()
+                            if r.get('notes'): st.caption('หมายเหตุการตรวจ: '+r['notes'])
                 else:st.write('ยังไม่มีประวัติการตรวจ')
         if st.session_state.get('show_qr'):
             if not st.secrets.get('APP_BASE_URL', ''): st.warning('ก่อนพิมพ์ QR ต้องตั้งค่า APP_BASE_URL ใน Streamlit Secrets ให้เป็น URL เว็บจริง')
